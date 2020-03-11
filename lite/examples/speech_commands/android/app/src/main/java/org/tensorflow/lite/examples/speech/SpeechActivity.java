@@ -45,6 +45,8 @@ import android.os.HandlerThread;
 import androidx.annotation.NonNull;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import androidx.appcompat.widget.SwitchCompat;
+
+import android.preference.TwoStatePreference;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewTreeObserver;
@@ -59,12 +61,16 @@ import java.io.InputStreamReader;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
+// 이 파일은 어디에 있는거여?!?!?
 import org.tensorflow.lite.Interpreter;
+// MFCC
+import org.tensorflow.demo.mfcc.MFCC;
 
 /**
  * An activity that listens for audio and then uses a TensorFlow model to detect particular classes,
@@ -77,16 +83,23 @@ public class SpeechActivity extends Activity
   // settings. See the audio recognition tutorial for a detailed explanation of
   // all these, but you should customize them to match your training settings if
   // you are running your own model.
-  private static final int SAMPLE_RATE = 16000;
-  private static final int SAMPLE_DURATION_MS = 1000;
+
+//  private static final int SAMPLE_RATE = 16000; !!
+  private static final int SAMPLE_RATE = 22050;
+//  private static final int SAMPLE_DURATION_MS = 1000; !!
+  private static final int SAMPLE_DURATION_MS = 10000;
   private static final int RECORDING_LENGTH = (int) (SAMPLE_RATE * SAMPLE_DURATION_MS / 1000);
+  // !! 여기 새로 생김
   private static final long AVERAGE_WINDOW_DURATION_MS = 1000;
   private static final float DETECTION_THRESHOLD = 0.50f;
   private static final int SUPPRESSION_MS = 1500;
   private static final int MINIMUM_COUNT = 3;
   private static final long MINIMUM_TIME_BETWEEN_SAMPLES_MS = 30;
-  private static final String LABEL_FILENAME = "file:///android_asset/conv_actions_labels.txt";
-  private static final String MODEL_FILENAME = "file:///android_asset/conv_actions_frozen.tflite";
+  // !!
+//  private static final String LABEL_FILENAME = "file:///android_asset/conv_actions_labels.txt";
+  private static final String LABEL_FILENAME = "file:///android_asset/labels.txt";
+//  private static final String MODEL_FILENAME = "file:///android_asset/conv_actions_frozen.tflite";
+  private static final String MODEL_FILENAME = "file:///android_asset/converted_model.tflite";
 
   // UI elements.
   private static final int REQUEST_RECORD_AUDIO = 13;
@@ -100,15 +113,19 @@ public class SpeechActivity extends Activity
   boolean shouldContinueRecognition = true;
   private Thread recognitionThread;
   private final ReentrantLock recordingBufferLock = new ReentrantLock();
-
+  //!! 여기 새로 생김
   private List<String> labels = new ArrayList<String>();
   private List<String> displayedLabels = new ArrayList<>();
   private RecognizeCommands recognizeCommands = null;
   private LinearLayout bottomSheetLayout;
   private LinearLayout gestureLayout;
   private BottomSheetBehavior<LinearLayout> sheetBehavior;
+  /// !! 새로생김 끝
 
+  ////!!!!!!!!!!!!!!!!!!!!!!!!! 이걸로 정의
   private Interpreter tfLite;
+
+  // !! 여기 새로 생
   private ImageView bottomSheetArrowImageView;
 
   private TextView yesTextView,
@@ -130,6 +147,7 @@ public class SpeechActivity extends Activity
   private TextView selectedTextView = null;
   private HandlerThread backgroundThread;
   private Handler backgroundHandler;
+  // !! 새로생김
 
   /** Memory-map the model file in Assets. */
   private static MappedByteBuffer loadModelFile(AssetManager assets, String modelFilename)
@@ -177,6 +195,8 @@ public class SpeechActivity extends Activity
             MINIMUM_COUNT,
             MINIMUM_TIME_BETWEEN_SAMPLES_MS);
 
+
+    // !! 여기서 모델 파일 받아서 실험함!!
     String actualModelFilename = MODEL_FILENAME.split("file:///android_asset/", -1)[1];
     try {
       tfLite = new Interpreter(loadModelFile(getAssets(), actualModelFilename));
@@ -184,8 +204,12 @@ public class SpeechActivity extends Activity
       throw new RuntimeException(e);
     }
 
-    tfLite.resizeInput(0, new int[] {RECORDING_LENGTH, 1});
-    tfLite.resizeInput(1, new int[] {1});
+    // RECORDING_LENGTH는 220500
+    // array([  1,  50, 431,   3], dtype=int32) 가 input shape였음
+    // array([1, 2], dtype=int32) output shape!
+    //!! 여기부분 수정! (IDx는 모르겠다)
+    tfLite.resizeInput(0, new int[] {1, 50, 431, 3});
+//    tfLite.resizeInput(1, new int[] {1});
 
     // Start the recording and recognition threads.
     requestMicrophonePermission();
@@ -390,7 +414,10 @@ public class SpeechActivity extends Activity
 
     short[] inputBuffer = new short[RECORDING_LENGTH];
     float[][] floatInputBuffer = new float[RECORDING_LENGTH][1];
-    float[][] outputScores = new float[1][labels.size()];
+    // !! Double로 받아야 하는듯
+    double[] doubleInputBuffer = new double[RECORDING_LENGTH];
+//    float[][] outputScores = new float[1][labels.size()];
+    float[][] outputScores = new float[1][2];
     int[] sampleRateList = new int[] {SAMPLE_RATE};
 
     // Loop, grabbing recorded data and running the recognition model on it.
@@ -413,14 +440,83 @@ public class SpeechActivity extends Activity
       // We need to feed in float values between -1.0f and 1.0f, so divide the
       // signed 16-bit inputs.
       for (int i = 0; i < RECORDING_LENGTH; ++i) {
-        floatInputBuffer[i][0] = inputBuffer[i] / 32767.0f;
+        doubleInputBuffer[i] = inputBuffer[i] / 32767.0f;
       }
 
-      Object[] inputArray = {floatInputBuffer, sampleRateList};
+      //MFCC java library.
+      // MFCC 로바꾸기
+      MFCC mfccConvert = new MFCC();
+      float[] mfccInput = mfccConvert.process(doubleInputBuffer);
+        //!! 이렇게 repeat 하는거 아니다!
+//        // 3 channel 이라 3번 repeat 하기듯
+//        // ?? 이거 좀 더 좋게 할 방법!!(이것도 잘 된건지 모르겠어 A[2:3] 이런건 없나...)
+//        mfccInput = Arrays.copyOf(mfccInput, mfccInput.length * 3);
+//        for(int i=mfccInput.length/3; i<mfccInput.length/3 * 2; i++){
+//            Log.v(LOG_TAG, "MFCC Input======> " +  mfccInput[i-mfccInput.length/3]);
+//            mfccInput[i] = mfccInput[i-mfccInput.length/3];
+//        }
+//        for(int i=mfccInput.length/3*2; i<mfccInput.length/3 * 3; i++){
+//            mfccInput[i] = mfccInput[i-mfccInput.length*2/3];
+//        }
+
+      // 5초따리
+      // 16000으로 하면 3140 이 원래 input 근데 22050으로 바꾸면 4320 둘다 0.19
+      // 그니까 5초에 160000이면 157 22050이면 216
+      // 10초면 432니까 비슷비슷??
+      // 그 1차원임! 157X20 = 3140
+      // mfcc class에서 직접 sampling rate 바꿔야 함 -> 그러면 상이즈 맞게 나옴!
+      Log.v(LOG_TAG, "MFCC_SIZE======> " + mfccInput.length);
+      Log.v(LOG_TAG, "MFCC Input======> " + Arrays.toString(mfccInput));
+    Log.v(LOG_TAG, "MFCC Input======> " + mfccInput[0]);
+
+      float sum = 0;
+      for (int i=0; i<mfccInput.length; i++) {
+        sum += mfccInput[i];
+      }
+
+      float avg = (float)sum / (float)mfccInput.length;
+
+      float total =0;
+      for (int i=0; i<mfccInput.length; i++)
+        total += (mfccInput[i]-avg)*(mfccInput[i]-avg);
+
+      float dev = total / mfccInput.length; // 분산
+      float std = (float)Math.sqrt(dev);
+
+      float eps = (float)1e-6;
+      for (int i=0; i<mfccInput.length; i++) {
+        //(spec - mean) / (std + eps)
+        mfccInput[i] = (mfccInput[i] - avg)/ (std+eps);
+      }
+      Log.v(LOG_TAG, "MFCC Reged Input======> " + mfccInput[0]);
+
+    // 직접 reshape 해줘야 함
+      int SECOND_DIM = 50;
+      int THIRD_DIM = 431;
+      int FOURTH_DIM = 3; // 그안에서 세번 반
+    float[][][][] reshaped_mfccInput = new float[1][50][431][3];
+    for(int second_d =0;second_d<SECOND_DIM;second_d++){
+      for(int third_d =0;third_d<THIRD_DIM;third_d++){
+        // 세번 반복할 애 차원
+        float current_input = mfccInput[second_d*SECOND_DIM+third_d];
+        for(int fourth_d =0; fourth_d<FOURTH_DIM; fourth_d++){
+          reshaped_mfccInput[0][second_d][third_d][fourth_d] = current_input;
+        }
+      }
+    }
+//    Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0].lenth);
+//      Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0].lenth);
+      Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][0]);
+      Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][1]);
+      Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][2]);
+
+//      Object[] inputArray = {floatInputBuffer, sampleRateList};
+      Object[] inputArray = {reshaped_mfccInput};
       Map<Integer, Object> outputMap = new HashMap<>();
       outputMap.put(0, outputScores);
 
       // Run the model.
+      // inputArray
       tfLite.runForMultipleInputsOutputs(inputArray, outputMap);
 
       // Use the smoother to figure out if we've had a real recognition event.
@@ -428,6 +524,7 @@ public class SpeechActivity extends Activity
       final RecognizeCommands.RecognitionResult result =
           recognizeCommands.processLatestResults(outputScores[0], currentTime);
       lastProcessingTimeMs = new Date().getTime() - startTime;
+
       runOnUiThread(
           new Runnable() {
             @Override
@@ -443,8 +540,8 @@ public class SpeechActivity extends Activity
                     labelIndex = i;
                   }
                 }
-
-                switch (labelIndex - 2) {
+                Log.v(LOG_TAG, "label num======> " + labelIndex);
+                switch (labelIndex) {
                   case 0:
                     selectedTextView = yesTextView;
                     break;

@@ -106,6 +106,8 @@ public class RecognizeCommands {
               + currentResults.length);
     }
 
+    Log.v("Results======> ",  Arrays.toString(currentResults));
+
     if ((!previousResults.isEmpty()) && (currentTimeMS < previousResults.getFirst().first)) {
       throw new RuntimeException(
           "You must feed results in increasing time order, but received a timestamp of "
