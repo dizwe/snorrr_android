@@ -141,6 +141,8 @@ public class RecognizeCommands {
     final long earliestTime = previousResults.getFirst().first;
     final long samplesDuration = currentTimeMS - earliestTime;
 
+    Log.v("samplesDuration======> ",  String.valueOf(samplesDuration));
+
     Log.v("Number of Results: ", String.valueOf(howManyResults));
 
     Log.v(

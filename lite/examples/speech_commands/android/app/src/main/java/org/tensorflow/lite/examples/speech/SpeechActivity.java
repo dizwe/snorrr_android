@@ -54,10 +54,18 @@ import android.widget.CompoundButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import java.io.ByteArrayOutputStream;
 import java.io.BufferedReader;
 import java.io.FileInputStream;
 import java.io.IOException;
+
 import java.io.InputStreamReader;
+import java.io.InputStream;
+import java.io.File;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+
+
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
@@ -408,9 +416,20 @@ public class SpeechActivity extends Activity
     recognitionThread = null;
   }
 
+  public byte[] inputStreamToByteArray(InputStream inStream) throws IOException {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    byte[] buffer = new byte[8192];
+    int bytesRead;
+    while ((bytesRead = inStream.read(buffer)) > 0) {
+      baos.write(buffer, 0, bytesRead);
+    }
+    return baos.toByteArray();
+  }
+
   private void recognize() {
 
     Log.v(LOG_TAG, "Start recognition");
+
 
     short[] inputBuffer = new short[RECORDING_LENGTH];
     float[][] floatInputBuffer = new float[RECORDING_LENGTH][1];
@@ -421,7 +440,8 @@ public class SpeechActivity extends Activity
     int[] sampleRateList = new int[] {SAMPLE_RATE};
 
     // Loop, grabbing recorded data and running the recognition model on it.
-    while (shouldContinueRecognition) {
+    // !!! 계속 돌아가는데 한번만 돌악게 해보자
+//    while (shouldContinueRecognition) {
       long startTime = new Date().getTime();
       // The recording thread places data in this round-robin buffer, so lock to
       // make sure there's no writing happening and then copy it to our own
@@ -437,11 +457,47 @@ public class SpeechActivity extends Activity
         recordingBufferLock.unlock();
       }
 
+      // 여기에서 short로 되어있는 input Buffer 만들자.
+      // read asset to File
+
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    try{
+      // file to InputStream
+      // https://evnt-hrzn.tistory.com/23
+        AssetManager assetManager = getAssets();
+        InputStream is = assetManager.open("8662.mp3");
+      // InputStream to Byte
+      // https://stackoverflow.com/questions/1264709/convert-inputstream-to-byte-array-in-java
+        int nRead;
+        byte[] data = new byte[16384];
+
+        while ((nRead = is.read(data, 0, data.length)) != -1) {
+          buffer.write(data, 0, nRead);
+        }
+
+
+      }catch(IOException e){
+        e.printStackTrace();
+      }
+    byte[] bytes =buffer.toByteArray();
+
+    // https://stackoverflow.com/questions/47790970/convert-byte-array-to-short-array
+    short[] newinputBuffer = new short[bytes.length/2];
+    ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(newinputBuffer);
+
+    // 80421
+    Log.v(LOG_TAG, "NEW_INPUTBUFFER_SIZE======> " + newinputBuffer.length);
+    // 22050(10초 단위로 load)
+    Log.v(LOG_TAG, "RECORDINGLENGTH======> " + RECORDING_LENGTH);
       // We need to feed in float values between -1.0f and 1.0f, so divide the
       // signed 16-bit inputs.
       for (int i = 0; i < RECORDING_LENGTH; ++i) {
-        doubleInputBuffer[i] = inputBuffer[i] / 32767.0f;
+        doubleInputBuffer[i] = newinputBuffer[i] / 32767.0f;
       }
+    // !!! SAMPE RATE에 맞춰서 load 해줘야 한다
+//    for (int i = 0; i < RECORDING_LENGTH; ++i) {
+//        doubleInputBuffer[i] = inputBuffer[i] / 32767.0f;
+//      }
 
       //MFCC java library.
       // MFCC 로바꾸기
@@ -604,7 +660,7 @@ public class SpeechActivity extends Activity
       } catch (InterruptedException e) {
         // Ignore
       }
-    }
+//    }
 
     Log.v(LOG_TAG, "End recognition");
   }
