@@ -378,6 +378,7 @@ public class SpeechActivity extends Activity
   }
 
   public static void updateWavHeader(File wav) throws IOException {
+    Log.v(LOG_TAG, "===================> WRITE   " + wav.length());
     byte[] sizes = ByteBuffer
             .allocate(8)
             .order(ByteOrder.LITTLE_ENDIAN)
@@ -414,6 +415,9 @@ public class SpeechActivity extends Activity
     try {
       outputStream.write(buffer, 0, buffer.length);
       Log.v(LOG_TAG, "===================> WRITE" + buffer.length);
+//      for(int k=0;k< buffer.length; k++){
+//        Log.d(LOG_TAG, "bytesinfo_each: "  +  buffer[k]);
+//      }
     } catch (IOException e) {
       e.printStackTrace();
     }
@@ -428,7 +432,7 @@ public class SpeechActivity extends Activity
     // 이걸로 buffersize를 얻는다!!!!
     int bufferSize =  AudioRecord.getMinBufferSize(
                         SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
-
+    Log.v(LOG_TAG, "===================> CHANNEL IN MONO" + AudioFormat.CHANNEL_IN_MONO + " "+SAMPLE_RATE);
     if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
       bufferSize = SAMPLE_RATE * 2;
     }
@@ -459,6 +463,7 @@ public class SpeechActivity extends Activity
     // Loop, gathering audio data and copying it to a round-robin buffer.
     while (shouldContinue) {
       // 얼마나 읽었
+      // // 이렇게 버퍼 데이터를 읽어오고, 반드시 읽어온 바이트수를 체크해야함. -> 최소 버퍼 사이즈보다 작을 수 있기 때문.
       int numberRead = record.read(audioBuffer, 0, audioBuffer.length);
       int maxLength = recordingBuffer.length;
       int newRecordingOffset = recordingOffset + numberRead;
@@ -483,6 +488,10 @@ public class SpeechActivity extends Activity
             System.arraycopy(audioBuffer, 0, recordingBuffer, recordingOffset, numberRead);
           } else {
             try {
+
+              /// https://quadflask.tistory.com/327
+              /////////////////////////////
+              // https://pyxispub.uzuki.live/?p=342
               // 내부저장소 외부저장소(https://codechacha.com/ko/android-q-scoped-storage/)
               // EXTERNAL 시도 -> Android/data/com.~~/ 폴더에 있
               File file = new File(getExternalFilesDir(null), "test.wav");
@@ -494,13 +503,16 @@ public class SpeechActivity extends Activity
               // 여기는 한 버퍼만 들어가니까 10초 넘게 하려면 한참 더해야 되는건가??
               Log.d(LOG_TAG, "recordingbufferinfo: " +recordingBuffer[1800]); // 값이 적히긴 하는데/...
               Log.d(LOG_TAG, "recordingbufferinfo: " + recordingBuffer.length +" "+  Arrays.toString(recordingBuffer));
-              writeWavHeader(outputStream,(short)AudioFormat.CHANNEL_IN_MONO, (short)SAMPLE_RATE, (short)AudioFormat.ENCODING_PCM_16BIT);
+              // !!으어ㅓ어어엉엉 값이 달랐따!!
+              writeWavHeader(outputStream,(short)1, (short)SAMPLE_RATE, (short)16);
+//              writeWavHeader(outputStream,(short)AudioFormat.CHANNEL_IN_MONO, (short)SAMPLE_RATE, (short)AudioFormat.ENCODING_PCM_16BIT);
               // 여기에 파일 씀
               Log.d(LOG_TAG, "Number Byte Read: " + numberRead);
 
               // short to byte(recording buffer to
               // https://stackoverflow.com/questions/10804852/how-to-convert-short-array-to-byte-array
               ByteBuffer byteBuf = ByteBuffer.allocate(2* recordingBuffer.length);
+              byteBuf.order( ByteOrder.LITTLE_ENDIAN); // ORDERING 어떻게 해야되는거여...?
               int i=0;
               while (recordingBuffer.length > i) {
                 byteBuf.putShort(recordingBuffer[i]);
@@ -512,12 +524,19 @@ public class SpeechActivity extends Activity
 //              byte[] bytes = new byte[byteBuf.remaining()];
 //              byteBuf.get(bytes, 0, bytes.length);
               Log.d(LOG_TAG, "bytesinfo: "  +  Arrays.toString(byteBuf.array()));
+//              for(int k=0;k< recordingBuffer.length; k++){
+//                Log.d(LOG_TAG, "recording_each: "  +  recordingBuffer[k]);
+//              }
+//              for(int k=0;k< byteBuf.array().length; k++){
+//                Log.d(LOG_TAG, "bytesinfo_each: "  +  byteBuf.array()[k]);
+//              }
               Log.d(LOG_TAG, "bytes length info: "  +  byteBuf.array().length);
+//              Log.d(LOG_TAG, "bytes length info: "  +  byteBuf.array()[44001]);
 
               processCapture(byteBuf.array(), numberRead); // recordingBuffer로 해야함!!(10초 버퍼 채워진크기)
               // wav header 붙이
               updateWavHeader(file);
-
+              ////////////////////////
 
 //        outputStream.close();
             } catch (IOException e) {
