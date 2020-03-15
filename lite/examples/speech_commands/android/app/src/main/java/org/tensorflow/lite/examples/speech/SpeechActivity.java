@@ -228,7 +228,7 @@ public class SpeechActivity extends Activity
     // Start the recording and recognition threads.
     requestMicrophonePermission();
     startRecording();
-    startRecognition();
+//    startRecognition();
 
     sampleRateTextView = findViewById(R.id.sample_rate);
     inferenceTimeTextView = findViewById(R.id.inference_info);
@@ -316,8 +316,8 @@ public class SpeechActivity extends Activity
     if (requestCode == REQUEST_RECORD_AUDIO
         && grantResults.length > 0
         && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-      startRecording();
-      startRecognition();
+//      startRecording();
+//      startRecognition();
     }
   }
 
@@ -413,7 +413,7 @@ public class SpeechActivity extends Activity
       return;
     try {
       outputStream.write(buffer, 0, buffer.length);
-      Log.v(LOG_TAG, "===================> WRITE");
+      Log.v(LOG_TAG, "===================> WRITE" + buffer.length);
     } catch (IOException e) {
       e.printStackTrace();
     }
@@ -436,7 +436,6 @@ public class SpeechActivity extends Activity
     // ?? SAMPLE RATE 만큼의 audio Buffer를 만드는건가여...?
     // byte로 들어오면 short로 바꿔지니까 뭉쳐져서 그런듯? (16bit니까)
     short[] audioBuffer = new short[bufferSize / 2];
-    byte[] byteBuffer = new byte[bufferSize];
 
 
     // !!! 이걸로 record initialize
@@ -459,57 +458,13 @@ public class SpeechActivity extends Activity
 
     // Loop, gathering audio data and copying it to a round-robin buffer.
     while (shouldContinue) {
-      /////////////////////////////////////////
-      // 여기서 파일 audiobuffer를 읽어서 저장을 하자!
-      try {
-        // INTEERNAL 시도
-//        outputStream = openFileOutput("file35.wav", Context.MODE_WORLD_READABLE);
-//        Log.d(LOG_TAG, "Internal private file dir: "
-//                + getFilesDir().getAbsolutePath());
-
-        // 내부저장소 외부저장소(https://codechacha.com/ko/android-q-scoped-storage/)
-        // EXTERNAL 시도 -> Android/data/com.~~/ 폴더에 있
-        File file = new File(getExternalFilesDir(null), "test.wav");
-        outputStream = new FileOutputStream(file);
-
-        Log.d(LOG_TAG, "External file dir: "
-                + getExternalFilesDir(null));
-
-        int numberbyteRead = record.read(byteBuffer, 0, byteBuffer.length);
-        // 여기는 한 버퍼만 들어가니까 10초 넘게 하려면 한참 더해야 되는건가??
-//        Log.d(LOG_TAG, "bufferinfo: " + byteBuffer.length +" "+  Arrays.toString(byteBuffer));
-        Log.d(LOG_TAG, "recordingbufferinfo: " + recordingByteBuffer.length +" "+  Arrays.toString(recordingBuffer));
-        writeWavHeader(outputStream,(short)AudioFormat.CHANNEL_IN_MONO, (short)SAMPLE_RATE, (short)AudioFormat.ENCODING_PCM_16BIT);
-        // 여기에 파일 씀
-        Log.d(LOG_TAG, "Number Byte Read: " + numberbyteRead);
-//        processCapture(byteBuffer, numberbyteRead);
-
-        // short to byte
-        // https://stackoverflow.com/questions/10804852/how-to-convert-short-array-to-byte-array
-        ByteBuffer byteBuf = ByteBuffer.allocate(2* recordingBuffer.length);
-        int i=0;
-        while (recordingBuffer.length > i) {
-          byteBuf.putShort(recordingByteBuffer[i]);
-          i++;
-        }
-
-        processCapture(recordingByteBuffer, numberbyteRead); // recordingBuffer로 해야함!!(10초 버퍼 채워진크기)
-        // wav header 붙이
-        updateWavHeader(file);
-
-//        outputStream.close();
-      } catch (IOException e) {
-        e.printStackTrace();
-      }
-        /////////////////////////////////////////
-
       // 얼마나 읽었
       int numberRead = record.read(audioBuffer, 0, audioBuffer.length);
       int maxLength = recordingBuffer.length;
       int newRecordingOffset = recordingOffset + numberRead;
 
-      int secondCopyLength = Math.max(0, newRecordingOffset - maxLength);
-      int firstCopyLength = numberRead - secondCopyLength;
+//      int secondCopyLength = Math.max(0, newRecordingOffset - maxLength);
+//      int firstCopyLength = numberRead - secondCopyLength;
       // We store off all the data for the recognition thread to access. The ML
       // thread will copy out of this buffer into its own, while holding the
       // lock, so this should be thread safe.
@@ -517,11 +472,60 @@ public class SpeechActivity extends Activity
       // mutextLock 같은거!!
       recordingBufferLock.lock();
       try {
-        // arraycopy(Object src, int srcPos, Object dest, int destPos, int length)음
-        // 아 round robin으로 만드려고 앞뒤를 자르는거구나!!! 이해이해
-        System.arraycopy(audioBuffer, 0, recordingBuffer, recordingOffset, firstCopyLength); // 여기서 0
-        System.arraycopy(audioBuffer, firstCopyLength, recordingBuffer, 0, secondCopyLength);
-        recordingOffset = newRecordingOffset % maxLength;
+//        // arraycopy(Object src, int srcPos, Object dest, int destPos, int length)음
+//        // 아 round robin으로 만드려고 앞뒤를 자르는거구나!!! 이해이해
+//        System.arraycopy(audioBuffer, 0, recordingBuffer, recordingOffset, firstCopyLength); // 여기서 0
+//        System.arraycopy(audioBuffer, firstCopyLength, recordingBuffer, 0, secondCopyLength);
+//        recordingOffset = newRecordingOffset % maxLength;
+          if (recordingOffset + numberRead < maxLength) {
+            // audio buffer를 붙여넣
+            Log.d(LOG_TAG, "audiobuffer: " + audioBuffer.length +" "+  Arrays.toString(audioBuffer));
+            System.arraycopy(audioBuffer, 0, recordingBuffer, recordingOffset, numberRead);
+          } else {
+            try {
+              // 내부저장소 외부저장소(https://codechacha.com/ko/android-q-scoped-storage/)
+              // EXTERNAL 시도 -> Android/data/com.~~/ 폴더에 있
+              File file = new File(getExternalFilesDir(null), "test.wav");
+              outputStream = new FileOutputStream(file);
+
+              Log.d(LOG_TAG, "External file dir: "
+                      + getExternalFilesDir(null));
+
+              // 여기는 한 버퍼만 들어가니까 10초 넘게 하려면 한참 더해야 되는건가??
+              Log.d(LOG_TAG, "recordingbufferinfo: " +recordingBuffer[1800]); // 값이 적히긴 하는데/...
+              Log.d(LOG_TAG, "recordingbufferinfo: " + recordingBuffer.length +" "+  Arrays.toString(recordingBuffer));
+              writeWavHeader(outputStream,(short)AudioFormat.CHANNEL_IN_MONO, (short)SAMPLE_RATE, (short)AudioFormat.ENCODING_PCM_16BIT);
+              // 여기에 파일 씀
+              Log.d(LOG_TAG, "Number Byte Read: " + numberRead);
+
+              // short to byte(recording buffer to
+              // https://stackoverflow.com/questions/10804852/how-to-convert-short-array-to-byte-array
+              ByteBuffer byteBuf = ByteBuffer.allocate(2* recordingBuffer.length);
+              int i=0;
+              while (recordingBuffer.length > i) {
+                byteBuf.putShort(recordingBuffer[i]);
+                i++;
+              }
+
+              // !! 결과가 0으로 나옴
+             // https://medium.com/@ponychen/java-bytebuffer-to-byte-array-a347d5c3a576
+//              byte[] bytes = new byte[byteBuf.remaining()];
+//              byteBuf.get(bytes, 0, bytes.length);
+              Log.d(LOG_TAG, "bytesinfo: "  +  Arrays.toString(byteBuf.array()));
+              Log.d(LOG_TAG, "bytes length info: "  +  byteBuf.array().length);
+
+              processCapture(byteBuf.array(), numberRead); // recordingBuffer로 해야함!!(10초 버퍼 채워진크기)
+              // wav header 붙이
+              updateWavHeader(file);
+
+
+//        outputStream.close();
+            } catch (IOException e) {
+              e.printStackTrace();
+            }
+            shouldContinue = false;
+          }
+          recordingOffset += numberRead;
       } finally {
         recordingBufferLock.unlock();
       }
@@ -529,6 +533,7 @@ public class SpeechActivity extends Activity
 
     record.stop();
     record.release();
+    startRecognition();
   }
 
   public synchronized void startRecognition() {
@@ -580,21 +585,28 @@ public class SpeechActivity extends Activity
 
     // Loop, grabbing recorded data and running the recognition model on it.
     // !!! 계속 돌아가는데 한번만 돌악게 해보자
-    while (shouldContinueRecognition) {
+//    while (shouldContinueRecognition) {
       long startTime = new Date().getTime();
-      // The recording thread places data in this round-robin buffer, so lock to
-      // make sure there's no writing happening and then copy it to our own
-      // local version.
-      recordingBufferLock.lock();
-      try {
-        int maxLength = recordingBuffer.length;
-        int firstCopyLength = maxLength - recordingOffset;
-        int secondCopyLength = recordingOffset;
-        System.arraycopy(recordingBuffer, recordingOffset, inputBuffer, 0, firstCopyLength);
-        System.arraycopy(recordingBuffer, 0, inputBuffer, firstCopyLength, secondCopyLength);
-      } finally {
-        recordingBufferLock.unlock();
-      }
+//      // The recording thread places data in this round-robin buffer, so lock to
+//      // make sure there's no writing happening and then copy it to our own
+//      // local version.
+//      recordingBufferLock.lock();
+//      try {
+//        int maxLength = recordingBuffer.length;
+//        int firstCopyLength = maxLength - recordingOffset;
+//        int secondCopyLength = recordingOffset;
+//        System.arraycopy(recordingBuffer, recordingOffset, inputBuffer, 0, firstCopyLength);
+//        System.arraycopy(recordingBuffer, 0, inputBuffer, firstCopyLength, secondCopyLength);
+//      } finally {
+//        recordingBufferLock.unlock();
+//      }
+    recordingBufferLock.lock();
+    try {
+      int maxLength = recordingBuffer.length;
+      System.arraycopy(recordingBuffer, 0, inputBuffer, 0, maxLength);
+    } finally {
+      recordingBufferLock.unlock();
+    }
 
     /////////////////////////////////////////
 
@@ -806,7 +818,7 @@ public class SpeechActivity extends Activity
       } catch (InterruptedException e) {
         // Ignore
       }
-    }
+//    }
 
     Log.v(LOG_TAG, "End recognition");
   }
