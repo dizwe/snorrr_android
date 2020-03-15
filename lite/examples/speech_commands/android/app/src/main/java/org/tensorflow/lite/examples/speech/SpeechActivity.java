@@ -32,6 +32,7 @@ the RecognizeCommands helper class.
 package org.tensorflow.lite.examples.speech;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.pm.PackageManager;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.AssetManager;
@@ -64,7 +65,9 @@ import java.io.InputStream;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-
+import java.io.FileOutputStream;
+import java.io.OutputStream;
+import java.io.RandomAccessFile;
 
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
@@ -115,11 +118,13 @@ public class SpeechActivity extends Activity
 
   // Working variables.
   short[] recordingBuffer = new short[RECORDING_LENGTH];
+  byte[] recordingByteBuffer = new byte[RECORDING_LENGTH*2];
   int recordingOffset = 0;
   boolean shouldContinue = true;
   private Thread recordingThread;
   boolean shouldContinueRecognition = true;
   private Thread recognitionThread;
+  // mutex lock 같은거네!!
   private final ReentrantLock recordingBufferLock = new ReentrantLock();
   //!! 여기 새로 생김
   private List<String> labels = new ArrayList<String>();
@@ -132,6 +137,7 @@ public class SpeechActivity extends Activity
 
   ////!!!!!!!!!!!!!!!!!!!!!!!!! 이걸로 정의
   private Interpreter tfLite;
+  private FileOutputStream outputStream;
 
   // !! 여기 새로 생
   private ImageView bottomSheetArrowImageView;
@@ -339,18 +345,101 @@ public class SpeechActivity extends Activity
     recordingThread = null;
   }
 
+  ////////////////////////
+
+
+  public static void writeWavHeader(OutputStream out, short channels, int sampleRate, short bitDepth) throws IOException {
+    // WAV 포맷에 필요한 little endian 포맷으로 다중 바이트의 수를 raw byte로 변환한다.
+    byte[] littleBytes = ByteBuffer
+            .allocate(14)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            .putShort(channels)
+            .putInt(sampleRate)
+            .putInt(sampleRate * channels * (bitDepth / 8))
+            .putShort((short) (channels * (bitDepth / 8)))
+            .putShort(bitDepth)
+            .array();
+    // 최고를 생성하지는 않겠지만, 적어도 쉽게만 가자.
+    out.write(new byte[]{
+            'R', 'I', 'F', 'F', // Chunk ID
+            0, 0, 0, 0, // Chunk Size (나중에 업데이트 될것)
+            'W', 'A', 'V', 'E', // Format
+            'f', 'm', 't', ' ', //Chunk ID
+            16, 0, 0, 0, // Chunk Size
+            1, 0, // AudioFormat
+            littleBytes[0], littleBytes[1], // Num of Channels
+            littleBytes[2], littleBytes[3], littleBytes[4], littleBytes[5], // SampleRate
+            littleBytes[6], littleBytes[7], littleBytes[8], littleBytes[9], // Byte Rate
+            littleBytes[10], littleBytes[11], // Block Align
+            littleBytes[12], littleBytes[13], // Bits Per Sample
+            'd', 'a', 't', 'a', // Chunk ID
+            0, 0, 0, 0, //Chunk Size (나중에 업데이트 될 것)
+    });
+  }
+
+  public static void updateWavHeader(File wav) throws IOException {
+    byte[] sizes = ByteBuffer
+            .allocate(8)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            // 아마 이 두 개를 계산할 때 좀 더 좋은 방법이 있을거라 생각하지만..
+            .putInt((int) (wav.length() - 8)) // ChunkSize
+            .putInt((int) (wav.length() - 44)) // Chunk Size
+            .array();
+    RandomAccessFile accessWave = null;
+    try {
+      accessWave = new RandomAccessFile(wav, "rw"); // 읽기-쓰기 모드로 인스턴스 생성
+      // ChunkSize
+      accessWave.seek(4); // 4바이트 지점으로 가서
+      accessWave.write(sizes, 0, 4); // 사이즈 채움
+      // Chunk Size
+      accessWave.seek(40); // 40바이트 지점으로 가서
+      accessWave.write(sizes, 4, 4); // 채움
+    } catch (IOException ex) {
+      // 예외를 다시 던지나, finally 에서 닫을 수 있음
+      throw ex;
+    } finally {
+      if (accessWave != null) {
+        try {
+          accessWave.close();
+        } catch (IOException ex) {
+          // 무시
+        }
+      }
+    }
+  }
+
+  private void processCapture(byte[] buffer, int status) {
+    if (status == AudioRecord.ERROR_INVALID_OPERATION || status == AudioRecord.ERROR_BAD_VALUE)
+      return;
+    try {
+      outputStream.write(buffer, 0, buffer.length);
+      Log.v(LOG_TAG, "===================> WRITE");
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+  }
+
+  ////////////////////////
+
   private void record() {
     android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO);
 
     // Estimate the buffer size we'll need for this device.
-    int bufferSize =
-        AudioRecord.getMinBufferSize(
-            SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+    // 이걸로 buffersize를 얻는다!!!!
+    int bufferSize =  AudioRecord.getMinBufferSize(
+                        SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+
     if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
       bufferSize = SAMPLE_RATE * 2;
     }
-    short[] audioBuffer = new short[bufferSize / 2];
 
+    // ?? SAMPLE RATE 만큼의 audio Buffer를 만드는건가여...?
+    // byte로 들어오면 short로 바꿔지니까 뭉쳐져서 그런듯? (16bit니까)
+    short[] audioBuffer = new short[bufferSize / 2];
+    byte[] byteBuffer = new byte[bufferSize];
+
+
+    // !!! 이걸로 record initialize
     AudioRecord record =
         new AudioRecord(
             MediaRecorder.AudioSource.DEFAULT,
@@ -370,17 +459,67 @@ public class SpeechActivity extends Activity
 
     // Loop, gathering audio data and copying it to a round-robin buffer.
     while (shouldContinue) {
+      /////////////////////////////////////////
+      // 여기서 파일 audiobuffer를 읽어서 저장을 하자!
+      try {
+        // INTEERNAL 시도
+//        outputStream = openFileOutput("file35.wav", Context.MODE_WORLD_READABLE);
+//        Log.d(LOG_TAG, "Internal private file dir: "
+//                + getFilesDir().getAbsolutePath());
+
+        // 내부저장소 외부저장소(https://codechacha.com/ko/android-q-scoped-storage/)
+        // EXTERNAL 시도 -> Android/data/com.~~/ 폴더에 있
+        File file = new File(getExternalFilesDir(null), "test.wav");
+        outputStream = new FileOutputStream(file);
+
+        Log.d(LOG_TAG, "External file dir: "
+                + getExternalFilesDir(null));
+
+        int numberbyteRead = record.read(byteBuffer, 0, byteBuffer.length);
+        // 여기는 한 버퍼만 들어가니까 10초 넘게 하려면 한참 더해야 되는건가??
+//        Log.d(LOG_TAG, "bufferinfo: " + byteBuffer.length +" "+  Arrays.toString(byteBuffer));
+        Log.d(LOG_TAG, "recordingbufferinfo: " + recordingByteBuffer.length +" "+  Arrays.toString(recordingBuffer));
+        writeWavHeader(outputStream,(short)AudioFormat.CHANNEL_IN_MONO, (short)SAMPLE_RATE, (short)AudioFormat.ENCODING_PCM_16BIT);
+        // 여기에 파일 씀
+        Log.d(LOG_TAG, "Number Byte Read: " + numberbyteRead);
+//        processCapture(byteBuffer, numberbyteRead);
+
+        // short to byte
+        // https://stackoverflow.com/questions/10804852/how-to-convert-short-array-to-byte-array
+        ByteBuffer byteBuf = ByteBuffer.allocate(2* recordingBuffer.length);
+        int i=0;
+        while (recordingBuffer.length > i) {
+          byteBuf.putShort(recordingByteBuffer[i]);
+          i++;
+        }
+
+        processCapture(recordingByteBuffer, numberbyteRead); // recordingBuffer로 해야함!!(10초 버퍼 채워진크기)
+        // wav header 붙이
+        updateWavHeader(file);
+
+//        outputStream.close();
+      } catch (IOException e) {
+        e.printStackTrace();
+      }
+        /////////////////////////////////////////
+
+      // 얼마나 읽었
       int numberRead = record.read(audioBuffer, 0, audioBuffer.length);
       int maxLength = recordingBuffer.length;
       int newRecordingOffset = recordingOffset + numberRead;
+
       int secondCopyLength = Math.max(0, newRecordingOffset - maxLength);
       int firstCopyLength = numberRead - secondCopyLength;
       // We store off all the data for the recognition thread to access. The ML
       // thread will copy out of this buffer into its own, while holding the
       // lock, so this should be thread safe.
+      // recordingbuffer와 audioBuffer차이 audiobuffer에 읽어온걸 recording buffer에 잘라서 넣
+      // mutextLock 같은거!!
       recordingBufferLock.lock();
       try {
-        System.arraycopy(audioBuffer, 0, recordingBuffer, recordingOffset, firstCopyLength);
+        // arraycopy(Object src, int srcPos, Object dest, int destPos, int length)음
+        // 아 round robin으로 만드려고 앞뒤를 자르는거구나!!! 이해이해
+        System.arraycopy(audioBuffer, 0, recordingBuffer, recordingOffset, firstCopyLength); // 여기서 0
         System.arraycopy(audioBuffer, firstCopyLength, recordingBuffer, 0, secondCopyLength);
         recordingOffset = newRecordingOffset % maxLength;
       } finally {
@@ -441,7 +580,7 @@ public class SpeechActivity extends Activity
 
     // Loop, grabbing recorded data and running the recognition model on it.
     // !!! 계속 돌아가는데 한번만 돌악게 해보자
-//    while (shouldContinueRecognition) {
+    while (shouldContinueRecognition) {
       long startTime = new Date().getTime();
       // The recording thread places data in this round-robin buffer, so lock to
       // make sure there's no writing happening and then copy it to our own
@@ -457,47 +596,54 @@ public class SpeechActivity extends Activity
         recordingBufferLock.unlock();
       }
 
-      // 여기에서 short로 되어있는 input Buffer 만들자.
-      // read asset to File
-
-    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-    try{
-      // file to InputStream
-      // https://evnt-hrzn.tistory.com/23
-        AssetManager assetManager = getAssets();
-        InputStream is = assetManager.open("8662.mp3");
-      // InputStream to Byte
-      // https://stackoverflow.com/questions/1264709/convert-inputstream-to-byte-array-in-java
-        int nRead;
-        byte[] data = new byte[16384];
-
-        while ((nRead = is.read(data, 0, data.length)) != -1) {
-          buffer.write(data, 0, nRead);
-        }
+    /////////////////////////////////////////
 
 
-      }catch(IOException e){
-        e.printStackTrace();
-      }
-    byte[] bytes =buffer.toByteArray();
-
-    // https://stackoverflow.com/questions/47790970/convert-byte-array-to-short-array
-    short[] newinputBuffer = new short[bytes.length/2];
-    ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(newinputBuffer);
-
-    // 80421
-    Log.v(LOG_TAG, "NEW_INPUTBUFFER_SIZE======> " + newinputBuffer.length);
-    // 22050(10초 단위로 load)
-    Log.v(LOG_TAG, "RECORDINGLENGTH======> " + RECORDING_LENGTH);
-      // We need to feed in float values between -1.0f and 1.0f, so divide the
-      // signed 16-bit inputs.
-      for (int i = 0; i < RECORDING_LENGTH; ++i) {
-        doubleInputBuffer[i] = newinputBuffer[i] / 32767.0f;
-      }
-    // !!! SAMPE RATE에 맞춰서 load 해줘야 한다
-//    for (int i = 0; i < RECORDING_LENGTH; ++i) {
-//        doubleInputBuffer[i] = inputBuffer[i] / 32767.0f;
+    /////////////////////////////////////////
+//      // 여기에서 short로 되어있는 input Buffer 만들자.
+//      // read asset to File
+//
+//    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+//    try{
+//      // file to InputStream
+//      // https://evnt-hrzn.tistory.com/23
+//        AssetManager assetManager = getAssets();
+//        InputStream is = assetManager.open("8662.mp3");
+//      // InputStream to Byte
+//      // https://stackoverflow.com/questions/1264709/convert-inputstream-to-byte-array-in-java
+//        int nRead;
+//        byte[] data = new byte[220500];
+//
+//        while ((nRead = is.read(data, 0, data.length)) != -1) {
+//          buffer.write(data, 0, nRead);
+//        }
+//
+//
+//      }catch(IOException e){
+//        e.printStackTrace();
 //      }
+//    byte[] bytes =buffer.toByteArray();
+//
+//    // https://stackoverflow.com/questions/47790970/convert-byte-array-to-short-array
+//    short[] newinputBuffer = new short[bytes.length/2];
+//    ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(newinputBuffer);
+//
+//    // 80421
+//    Log.v(LOG_TAG, "NEW_INPUTBUFFER_SIZE======> " + newinputBuffer.length);
+//    // 22050(10초 단위로 load)
+//    Log.v(LOG_TAG, "RECORDINGLENGTH======> " + RECORDING_LENGTH);
+//
+//      // We need to feed in float values between -1.0f and 1.0f, so divide the
+//      // signed 16-bit inputs.
+//      for (int i = 0; i < RECORDING_LENGTH; ++i) {
+//        doubleInputBuffer[i] = newinputBuffer[i] / 32767.0f;
+//      }
+//
+      /////////////////////////////////////////
+    // !!! SAMPE RATE에 맞춰서 load 해줘야 한다
+    for (int i = 0; i < RECORDING_LENGTH; ++i) {
+        doubleInputBuffer[i] = inputBuffer[i] / 32767.0f;
+      }
 
       //MFCC java library.
       // MFCC 로바꾸기
@@ -660,7 +806,7 @@ public class SpeechActivity extends Activity
       } catch (InterruptedException e) {
         // Ignore
       }
-//    }
+    }
 
     Log.v(LOG_TAG, "End recognition");
   }
