@@ -68,6 +68,7 @@ import java.nio.ByteOrder;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
+import java.io.PrintStream;
 
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
@@ -96,9 +97,10 @@ public class SpeechActivity extends Activity
   // you are running your own model.
 
 //  private static final int SAMPLE_RATE = 16000; !!
-  private static final int SAMPLE_RATE = 22050;
+  private static final int SAMPLE_RATE = 44100;
 //  private static final int SAMPLE_DURATION_MS = 1000; !!
   private static final int SAMPLE_DURATION_MS = 10000;
+//  private static final int SAMPLE_DURATION_MS = 5000;
   private static final int RECORDING_LENGTH = (int) (SAMPLE_RATE * SAMPLE_DURATION_MS / 1000);
   // !! 여기 새로 생김
   private static final long AVERAGE_WINDOW_DURATION_MS = 1000;
@@ -672,14 +674,19 @@ public class SpeechActivity extends Activity
 //
       /////////////////////////////////////////
     // !!! SAMPE RATE에 맞춰서 load 해줘야 한다
-    for (int i = 0; i < RECORDING_LENGTH; ++i) {
-        doubleInputBuffer[i] = inputBuffer[i] / 32767.0f;
+    // 이유는 모르겠는데 half로 계산됨!(학습도리때부터) -> 초를 5초로 줄임
+    double[] doubleInputBuffer2 = new double[RECORDING_LENGTH/2];
+    for (int i = RECORDING_LENGTH/2; i < RECORDING_LENGTH-1; ++i) {
+        doubleInputBuffer2[i-RECORDING_LENGTH/2] = inputBuffer[i] / 32767.0f;
       }
 
+//    for (int i = 0; i < RECORDING_LENGTH; ++i) {
+//      doubleInputBuffer[i] = inputBuffer[i] / 32767.0f;
+//    }
       //MFCC java library.
       // MFCC 로바꾸기
       MFCC mfccConvert = new MFCC();
-      float[] mfccInput = mfccConvert.process(doubleInputBuffer);
+      float[] mfccInput = mfccConvert.process(doubleInputBuffer2);
         //!! 이렇게 repeat 하는거 아니다!
 //        // 3 channel 이라 3번 repeat 하기듯
 //        // ?? 이거 좀 더 좋게 할 방법!!(이것도 잘 된건지 모르겠어 A[2:3] 이런건 없나...)
@@ -702,6 +709,18 @@ public class SpeechActivity extends Activity
       Log.v(LOG_TAG, "MFCC Input======> " + Arrays.toString(mfccInput));
     Log.v(LOG_TAG, "MFCC Input======> " + mfccInput[0]);
 
+    // 파일로 적어서 디버
+    // https://stackoverflow.com/questions/4069028/write-string-to-output-stream
+    try {
+      File file = new File(getExternalFilesDir(null), "test.csv");
+      OutputStream fos = new FileOutputStream(file);
+      PrintStream ps = new PrintStream(fos);
+      ps.print(Arrays.toString(mfccInput));
+      ps.close();
+    }catch(IOException e){
+        e.printStackTrace();
+      }
+
       float sum = 0;
       for (int i=0; i<mfccInput.length; i++) {
         sum += mfccInput[i];
@@ -723,25 +742,35 @@ public class SpeechActivity extends Activity
       }
       Log.v(LOG_TAG, "MFCC Reged Input======> " + mfccInput[0]);
 
-    // 직접 reshape 해줘야 함
-      int SECOND_DIM = 50;
-      int THIRD_DIM = 431;
-      int FOURTH_DIM = 3; // 그안에서 세번 반
-    float[][][][] reshaped_mfccInput = new float[1][50][431][3];
-    for(int second_d =0;second_d<SECOND_DIM;second_d++){
-      for(int third_d =0;third_d<THIRD_DIM;third_d++){
-        // 세번 반복할 애 차원
-        float current_input = mfccInput[second_d*SECOND_DIM+third_d];
-        for(int fourth_d =0; fourth_d<FOURTH_DIM; fourth_d++){
-          reshaped_mfccInput[0][second_d][third_d][fourth_d] = current_input;
-        }
+      // 일단 431,50 shape로 만들기
+    // 만들고 나서 reshape?
+    int SECOND_DIM = 50;
+    int THIRD_DIM = 431;
+    int FOURTH_DIM = 3; // 그안에서 세번 반
+    float[][] temp_reshaped_mfccInput = new float[431][50];
+    for(int third_d =0;third_d<THIRD_DIM;third_d++){
+      for(int second_d =0;second_d<SECOND_DIM;second_d++){
+        float current_input = mfccInput[SECOND_DIM*third_d+second_d];
+        temp_reshaped_mfccInput[third_d][second_d] = current_input;
       }
     }
+
+    // Transpose
+      float[][][][] reshaped_mfccInput = new float[1][50][431][3];
+      for(int second_d =0;second_d<SECOND_DIM;second_d++){
+        for(int third_d =0;third_d<THIRD_DIM;third_d++){
+          // 세번 반복할 애 차원
+          float current_input = temp_reshaped_mfccInput[third_d][second_d];
+          for(int fourth_d =0; fourth_d<FOURTH_DIM; fourth_d++){
+            reshaped_mfccInput[0][second_d][third_d][fourth_d] = current_input;
+          }
+        }
+      }
 //    Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0].lenth);
 //      Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0].lenth);
-      Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][0]);
-      Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][1]);
-      Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][2]);
+    Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][0]);
+    Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][1]);
+    Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][2]);
 
 //      Object[] inputArray = {floatInputBuffer, sampleRateList};
       Object[] inputArray = {reshaped_mfccInput};
@@ -751,6 +780,7 @@ public class SpeechActivity extends Activity
       // Run the model.
       // inputArray
       tfLite.runForMultipleInputsOutputs(inputArray, outputMap);
+//      tfLite.runForMultipleInputsOutputs(reshaped_mfccInput, outputMap);
 
       // Use the smoother to figure out if we've had a real recognition event.
       long currentTime = System.currentTimeMillis();

@@ -6,6 +6,8 @@
 package org.tensorflow.demo.mfcc;
 
 
+import android.util.Log;
+
 /**
  * Mel-Frequency Cepstrum Coefficients.
  *
@@ -18,13 +20,15 @@ public class MFCC {
 
 //	private final static int       n_mfcc       		= 20;
 	private final static int       n_mfcc       		= 50;
-	private final static double    fMin                 = 0.0;
+//	private final static double    fMin                 = 0.0;
+	private final static double    fMin                 = 20.0;
 	private final static int       n_fft                = 2048;
 	private final static int       hop_length           = 512;
 	private final static int	   n_mels               = 128;
 
 //	private final static double    sampleRate           = 16000.0;
-	private final static double    sampleRate           = 22050.0;
+//	private final static double    sampleRate           = 22050.0;
+	private final static double    sampleRate           = 44100.0;
 	private final static double    fMax                 = sampleRate/2.0;
 
 	FFT fft = new FFT();
@@ -32,6 +36,7 @@ public class MFCC {
 
 	public float[] process(double[] doubleInputBuffer) {
 		final double[][] mfccResult = dctMfcc(doubleInputBuffer);
+		Log.v( "HI","SAMPLERATE======> " + sampleRate);
 		return finalshape(mfccResult);
 	}
 
