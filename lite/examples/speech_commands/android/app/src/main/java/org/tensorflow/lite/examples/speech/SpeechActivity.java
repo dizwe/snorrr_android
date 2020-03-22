@@ -96,11 +96,9 @@ public class SpeechActivity extends Activity
   // all these, but you should customize them to match your training settings if
   // you are running your own model.
 
-//  private static final int SAMPLE_RATE = 16000; !!
   private static final int SAMPLE_RATE = 44100;
-//  private static final int SAMPLE_DURATION_MS = 1000; !!
-  private static final int SAMPLE_DURATION_MS = 10000;
-//  private static final int SAMPLE_DURATION_MS = 5000;
+  private static final int SAMPLE_DURATION_MS = 10000; // 10초
+  //private static final int SAMPLE_DURATION_MS = 5000; // 5초
   private static final int RECORDING_LENGTH = (int) (SAMPLE_RATE * SAMPLE_DURATION_MS / 1000);
   // !! 여기 새로 생김
   private static final long AVERAGE_WINDOW_DURATION_MS = 1000;
@@ -109,10 +107,12 @@ public class SpeechActivity extends Activity
   private static final int MINIMUM_COUNT = 3;
   private static final long MINIMUM_TIME_BETWEEN_SAMPLES_MS = 30;
   // !!
-//  private static final String LABEL_FILENAME = "file:///android_asset/conv_actions_labels.txt";
+  // label 종류 적는 파일
   private static final String LABEL_FILENAME = "file:///android_asset/labels.txt";
-//  private static final String MODEL_FILENAME = "file:///android_asset/conv_actions_frozen.tflite";
+  // 내 모델 경로
   private static final String MODEL_FILENAME = "file:///android_asset/converted_model.tflite";
+  // 이걸 통해서 모델 해석하고 정의한다.
+  private Interpreter tfLite;
 
   // UI elements.
   private static final int REQUEST_RECORD_AUDIO = 13;
@@ -126,7 +126,7 @@ public class SpeechActivity extends Activity
   private Thread recordingThread;
   boolean shouldContinueRecognition = true;
   private Thread recognitionThread;
-  // mutex lock 같은거네!!
+  // mutex lock 같은 것
   private final ReentrantLock recordingBufferLock = new ReentrantLock();
   //!! 여기 새로 생김
   private List<String> labels = new ArrayList<String>();
@@ -137,8 +137,6 @@ public class SpeechActivity extends Activity
   private BottomSheetBehavior<LinearLayout> sheetBehavior;
   /// !! 새로생김 끝
 
-  ////!!!!!!!!!!!!!!!!!!!!!!!!! 이걸로 정의
-  private Interpreter tfLite;
   private FileOutputStream outputStream;
 
   // !! 여기 새로 생
@@ -223,14 +221,13 @@ public class SpeechActivity extends Activity
     // RECORDING_LENGTH는 220500
     // array([  1,  50, 431,   3], dtype=int32) 가 input shape였음
     // array([1, 2], dtype=int32) output shape!
-    //!! 여기부분 수정! (IDx는 모르겠다)
+    // 하나 input 만 넣으거니까 idx 0만 있으면 됨.
     tfLite.resizeInput(0, new int[] {1, 50, 431, 3});
-//    tfLite.resizeInput(1, new int[] {1});
 
     // Start the recording and recognition threads.
     requestMicrophonePermission();
     startRecording();
-//    startRecognition();
+    // startRecognition();
 
     sampleRateTextView = findViewById(R.id.sample_rate);
     inferenceTimeTextView = findViewById(R.id.inference_info);
@@ -347,9 +344,6 @@ public class SpeechActivity extends Activity
     recordingThread = null;
   }
 
-  ////////////////////////
-
-
   public static void writeWavHeader(OutputStream out, short channels, int sampleRate, short bitDepth) throws IOException {
     // WAV 포맷에 필요한 little endian 포맷으로 다중 바이트의 수를 raw byte로 변환한다.
     byte[] littleBytes = ByteBuffer
@@ -380,7 +374,7 @@ public class SpeechActivity extends Activity
   }
 
   public static void updateWavHeader(File wav) throws IOException {
-    Log.v(LOG_TAG, "===================> WRITE   " + wav.length());
+    Log.v(LOG_TAG, "===================> HEADER UPDATE " + wav.length());
     byte[] sizes = ByteBuffer
             .allocate(8)
             .order(ByteOrder.LITTLE_ENDIAN)
@@ -411,21 +405,59 @@ public class SpeechActivity extends Activity
     }
   }
 
+  // Byte 정볼르 이용해서 파일 쓰기
   private void processCapture(byte[] buffer, int status) {
     if (status == AudioRecord.ERROR_INVALID_OPERATION || status == AudioRecord.ERROR_BAD_VALUE)
       return;
     try {
       outputStream.write(buffer, 0, buffer.length);
       Log.v(LOG_TAG, "===================> WRITE" + buffer.length);
-//      for(int k=0;k< buffer.length; k++){
-//        Log.d(LOG_TAG, "bytesinfo_each: "  +  buffer[k]);
-//      }
+      //for(int k=0;k< buffer.length; k++){
+      //    Log.d(LOG_TAG, "bytesinfo_each: "  +  buffer[k]);
+      //}
     } catch (IOException e) {
       e.printStackTrace();
     }
   }
 
-  ////////////////////////
+  // 체크를 위해서 녹음한 파일 쓰기!
+  private void write_record_file(int numberRead) {
+    try {
+      /////////////////////////////
+      // https://pyxispub.uzuki.live/?p=342 주된 참고자료
+      // https://quadflask.tistory.com/327 보조 자료
+      // 내부저장소 외부저장소(https://codechacha.com/ko/android-q-scoped-storage/)
+      // EXTERNAL 시도 -> Android/data/com.~~/ 폴더에 있다.
+      Log.d(LOG_TAG, "External file dir: " + getExternalFilesDir(null));
+      File file = new File(getExternalFilesDir(null), "test.wav");
+      outputStream = new FileOutputStream(file);
+
+      // 여기는 한 버퍼만 들어가니까 10초 넘게 하려면 한참 더해야 되는건가?
+      Log.d(LOG_TAG, "recordingbufferinfo: " + recordingBuffer.length +" "+  Arrays.toString(recordingBuffer));
+      writeWavHeader(outputStream,(short)1, (short)SAMPLE_RATE, (short)16);
+      // writeWavHeader(outputStream,(short)AudioFormat.CHANNEL_IN_MONO, (short)SAMPLE_RATE, (short)AudioFormat.ENCODING_PCM_16BIT); // !!으어ㅓ어어엉엉 값이 달랐따!!이렇게 적으면 안됨
+
+      // short to byte(recording buffer(short type) to byteBuffer(byte type))
+      // https://stackoverflow.com/questions/10804852/how-to-convert-short-array-to-byte-array
+      ByteBuffer byteBuf = ByteBuffer.allocate(2* recordingBuffer.length);
+      byteBuf.order( ByteOrder.LITTLE_ENDIAN); // BYTE를 적을땐 ENDIAN 신경 써야 함.
+      int i=0;
+      while (recordingBuffer.length > i) {
+        byteBuf.putShort(recordingBuffer[i]);
+        i++;
+      }
+
+      Log.d(LOG_TAG, "bytesinfo: "  +  Arrays.toString(byteBuf.array()));
+      Log.d(LOG_TAG, "bytes length info: "  +  byteBuf.array().length);
+
+      processCapture(byteBuf.array(), numberRead); // recordingBuffer로 해야함!!(10초 버퍼 채워진크기)
+      updateWavHeader(file); // wav header 붙이
+
+      // outputStream.close();
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+  }
 
   private void record() {
     android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO);
@@ -465,88 +497,22 @@ public class SpeechActivity extends Activity
     // Loop, gathering audio data and copying it to a round-robin buffer.
     while (shouldContinue) {
       // 얼마나 읽었
-      // // 이렇게 버퍼 데이터를 읽어오고, 반드시 읽어온 바이트수를 체크해야함. -> 최소 버퍼 사이즈보다 작을 수 있기 때문.
+      // 이렇게 버퍼 데이터를 읽어오고, 반드시 읽어온 바이트수를 체크해야함. -> 최소 버퍼 사이즈보다 작을 수 있기 때문.
       int numberRead = record.read(audioBuffer, 0, audioBuffer.length);
-      int maxLength = recordingBuffer.length;
+      int maxLength = recordingBuffer.length; // 라운드로빈의 전체 크기
       int newRecordingOffset = recordingOffset + numberRead;
+      // 라운드 로빈이까 max length 지난 것들은 앞으로 갈 수 있게 해줌
+      int secondCopyLength = Math.max(0, newRecordingOffset - maxLength);
+      int firstCopyLength = numberRead - secondCopyLength;
 
-//      int secondCopyLength = Math.max(0, newRecordingOffset - maxLength);
-//      int firstCopyLength = numberRead - secondCopyLength;
-      // We store off all the data for the recognition thread to access. The ML
-      // thread will copy out of this buffer into its own, while holding the
-      // lock, so this should be thread safe.
-      // recordingbuffer와 audioBuffer차이 audiobuffer에 읽어온걸 recording buffer에 잘라서 넣
-      // mutextLock 같은거!!
-      recordingBufferLock.lock();
+      // recordingbuffer와 audioBuffer차이 audiobuffer에 읽어온걸 recording buffer에 잘라서 넣기
+      recordingBufferLock.lock(); // mutextLock 같은거!!
       try {
-//        // arraycopy(Object src, int srcPos, Object dest, int destPos, int length)음
-//        // 아 round robin으로 만드려고 앞뒤를 자르는거구나!!! 이해이해
-//        System.arraycopy(audioBuffer, 0, recordingBuffer, recordingOffset, firstCopyLength); // 여기서 0
-//        System.arraycopy(audioBuffer, firstCopyLength, recordingBuffer, 0, secondCopyLength);
-//        recordingOffset = newRecordingOffset % maxLength;
-          if (recordingOffset + numberRead < maxLength) {
-            // audio buffer를 붙여넣
-            Log.d(LOG_TAG, "audiobuffer: " + audioBuffer.length +" "+  Arrays.toString(audioBuffer));
-            System.arraycopy(audioBuffer, 0, recordingBuffer, recordingOffset, numberRead);
-          } else {
-            try {
-
-              /// https://quadflask.tistory.com/327
-              /////////////////////////////
-              // https://pyxispub.uzuki.live/?p=342
-              // 내부저장소 외부저장소(https://codechacha.com/ko/android-q-scoped-storage/)
-              // EXTERNAL 시도 -> Android/data/com.~~/ 폴더에 있
-              File file = new File(getExternalFilesDir(null), "test.wav");
-              outputStream = new FileOutputStream(file);
-
-              Log.d(LOG_TAG, "External file dir: "
-                      + getExternalFilesDir(null));
-
-              // 여기는 한 버퍼만 들어가니까 10초 넘게 하려면 한참 더해야 되는건가??
-              Log.d(LOG_TAG, "recordingbufferinfo: " +recordingBuffer[1800]); // 값이 적히긴 하는데/...
-              Log.d(LOG_TAG, "recordingbufferinfo: " + recordingBuffer.length +" "+  Arrays.toString(recordingBuffer));
-              // !!으어ㅓ어어엉엉 값이 달랐따!!
-              writeWavHeader(outputStream,(short)1, (short)SAMPLE_RATE, (short)16);
-//              writeWavHeader(outputStream,(short)AudioFormat.CHANNEL_IN_MONO, (short)SAMPLE_RATE, (short)AudioFormat.ENCODING_PCM_16BIT);
-              // 여기에 파일 씀
-              Log.d(LOG_TAG, "Number Byte Read: " + numberRead);
-
-              // short to byte(recording buffer to
-              // https://stackoverflow.com/questions/10804852/how-to-convert-short-array-to-byte-array
-              ByteBuffer byteBuf = ByteBuffer.allocate(2* recordingBuffer.length);
-              byteBuf.order( ByteOrder.LITTLE_ENDIAN); // ORDERING 어떻게 해야되는거여...?
-              int i=0;
-              while (recordingBuffer.length > i) {
-                byteBuf.putShort(recordingBuffer[i]);
-                i++;
-              }
-
-              // !! 결과가 0으로 나옴
-             // https://medium.com/@ponychen/java-bytebuffer-to-byte-array-a347d5c3a576
-//              byte[] bytes = new byte[byteBuf.remaining()];
-//              byteBuf.get(bytes, 0, bytes.length);
-              Log.d(LOG_TAG, "bytesinfo: "  +  Arrays.toString(byteBuf.array()));
-//              for(int k=0;k< recordingBuffer.length; k++){
-//                Log.d(LOG_TAG, "recording_each: "  +  recordingBuffer[k]);
-//              }
-//              for(int k=0;k< byteBuf.array().length; k++){
-//                Log.d(LOG_TAG, "bytesinfo_each: "  +  byteBuf.array()[k]);
-//              }
-              Log.d(LOG_TAG, "bytes length info: "  +  byteBuf.array().length);
-//              Log.d(LOG_TAG, "bytes length info: "  +  byteBuf.array()[44001]);
-
-              processCapture(byteBuf.array(), numberRead); // recordingBuffer로 해야함!!(10초 버퍼 채워진크기)
-              // wav header 붙이
-              updateWavHeader(file);
-              ////////////////////////
-
-//        outputStream.close();
-            } catch (IOException e) {
-              e.printStackTrace();
-            }
-            shouldContinue = false;
-          }
-          recordingOffset += numberRead;
+        // arraycopy(Object src, int srcPos, Object dest, int destPos, int length)음
+        // 아 round robin으로 만드려고 앞뒤를 자르는거구나!!! 이해이해
+        System.arraycopy(audioBuffer, 0, recordingBuffer, recordingOffset, firstCopyLength); // 여기서 0
+        System.arraycopy(audioBuffer, firstCopyLength, recordingBuffer, 0, secondCopyLength);
+        recordingOffset = newRecordingOffset % maxLength; 
       } finally {
         recordingBufferLock.unlock();
       }
@@ -554,7 +520,72 @@ public class SpeechActivity extends Activity
 
     record.stop();
     record.release();
-    startRecognition();
+  }
+
+  private void record_once() {
+    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO);
+
+    // Estimate the buffer size we'll need for this device.
+    // 이걸로 buffersize를 얻는다!!!!
+    int bufferSize =  AudioRecord.getMinBufferSize(
+            SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+    Log.v(LOG_TAG, "===================> CHANNEL IN MONO" + AudioFormat.CHANNEL_IN_MONO + " "+SAMPLE_RATE);
+    if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
+      bufferSize = SAMPLE_RATE * 2;
+    }
+
+    // ?? SAMPLE RATE 만큼의 audio Buffer를 만드는건가여...?
+    // byte로 들어오면 short로 바꿔지니까 뭉쳐져서 그런듯? (16bit니까)
+    short[] audioBuffer = new short[bufferSize / 2];
+
+
+    // !!! 이걸로 record initialize
+    AudioRecord record =
+            new AudioRecord(
+                    MediaRecorder.AudioSource.DEFAULT,
+                    SAMPLE_RATE,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    bufferSize);
+
+    if (record.getState() != AudioRecord.STATE_INITIALIZED) {
+      Log.e(LOG_TAG, "Audio Record can't initialize!");
+      return;
+    }
+
+    record.startRecording();
+
+    Log.v(LOG_TAG, "Start recording");
+
+    // Loop, gathering audio data and copying it to a round-robin buffer.
+    while (shouldContinue) {
+      // 얼마나 읽었
+      // 이렇게 버퍼 데이터를 읽어오고, 반드시 읽어온 바이트수를 체크해야함. -> 최소 버퍼 사이즈보다 작을 수 있기 때문.
+      int numberRead = record.read(audioBuffer, 0, audioBuffer.length);
+      int maxLength = recordingBuffer.length;
+      int newRecordingOffset = recordingOffset + numberRead;
+
+      // recordingbuffer와 audioBuffer차이 audiobuffer에 읽어온걸 recording buffer에 잘라서 넣기
+      recordingBufferLock.lock(); // mutextLock 같은거!!
+      try {
+        ////////// 원하는 양만큼 버퍼 쌓고 나서 recognition 하기
+        if (recordingOffset + numberRead < maxLength) {
+          // audio buffer를 붙여넣
+          Log.d(LOG_TAG, "audiobuffer: " + audioBuffer.length +" "+  Arrays.toString(audioBuffer));
+          System.arraycopy(audioBuffer, 0, recordingBuffer, recordingOffset, numberRead);
+        } else {
+          write_record_file(numberRead);
+          shouldContinue = false;
+        }
+        recordingOffset += numberRead;
+      } finally {
+        recordingBufferLock.unlock();
+      }
+    }
+
+    record.stop();
+    record.release();
+    startRecognition(); // 한번만 할거니까
   }
 
   public synchronized void startRecognition() {
@@ -629,49 +660,6 @@ public class SpeechActivity extends Activity
       recordingBufferLock.unlock();
     }
 
-    /////////////////////////////////////////
-
-
-    /////////////////////////////////////////
-//      // 여기에서 short로 되어있는 input Buffer 만들자.
-//      // read asset to File
-//
-//    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-//    try{
-//      // file to InputStream
-//      // https://evnt-hrzn.tistory.com/23
-//        AssetManager assetManager = getAssets();
-//        InputStream is = assetManager.open("8662.mp3");
-//      // InputStream to Byte
-//      // https://stackoverflow.com/questions/1264709/convert-inputstream-to-byte-array-in-java
-//        int nRead;
-//        byte[] data = new byte[220500];
-//
-//        while ((nRead = is.read(data, 0, data.length)) != -1) {
-//          buffer.write(data, 0, nRead);
-//        }
-//
-//
-//      }catch(IOException e){
-//        e.printStackTrace();
-//      }
-//    byte[] bytes =buffer.toByteArray();
-//
-//    // https://stackoverflow.com/questions/47790970/convert-byte-array-to-short-array
-//    short[] newinputBuffer = new short[bytes.length/2];
-//    ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(newinputBuffer);
-//
-//    // 80421
-//    Log.v(LOG_TAG, "NEW_INPUTBUFFER_SIZE======> " + newinputBuffer.length);
-//    // 22050(10초 단위로 load)
-//    Log.v(LOG_TAG, "RECORDINGLENGTH======> " + RECORDING_LENGTH);
-//
-//      // We need to feed in float values between -1.0f and 1.0f, so divide the
-//      // signed 16-bit inputs.
-//      for (int i = 0; i < RECORDING_LENGTH; ++i) {
-//        doubleInputBuffer[i] = newinputBuffer[i] / 32767.0f;
-//      }
-//
       /////////////////////////////////////////
     // !!! SAMPE RATE에 맞춰서 load 해줘야 한다
     // 이유는 모르겠는데 half로 계산됨!(학습도리때부터) -> 초를 5초로 줄임
@@ -687,17 +675,6 @@ public class SpeechActivity extends Activity
       // MFCC 로바꾸기
       MFCC mfccConvert = new MFCC();
       float[] mfccInput = mfccConvert.process(doubleInputBuffer2);
-        //!! 이렇게 repeat 하는거 아니다!
-//        // 3 channel 이라 3번 repeat 하기듯
-//        // ?? 이거 좀 더 좋게 할 방법!!(이것도 잘 된건지 모르겠어 A[2:3] 이런건 없나...)
-//        mfccInput = Arrays.copyOf(mfccInput, mfccInput.length * 3);
-//        for(int i=mfccInput.length/3; i<mfccInput.length/3 * 2; i++){
-//            Log.v(LOG_TAG, "MFCC Input======> " +  mfccInput[i-mfccInput.length/3]);
-//            mfccInput[i] = mfccInput[i-mfccInput.length/3];
-//        }
-//        for(int i=mfccInput.length/3*2; i<mfccInput.length/3 * 3; i++){
-//            mfccInput[i] = mfccInput[i-mfccInput.length*2/3];
-//        }
 
       // 5초따리
       // 16000으로 하면 3140 이 원래 input 근데 22050으로 바꾸면 4320 둘다 0.19
@@ -709,11 +686,12 @@ public class SpeechActivity extends Activity
       Log.v(LOG_TAG, "MFCC Input======> " + Arrays.toString(mfccInput));
     Log.v(LOG_TAG, "MFCC Input======> " + mfccInput[0]);
 
-    // 파일로 적어서 디버
+    // 파일로 적어서 디버깅(python에서 librosa 시각화)
     // https://stackoverflow.com/questions/4069028/write-string-to-output-stream
     try {
       File file = new File(getExternalFilesDir(null), "test.csv");
       OutputStream fos = new FileOutputStream(file);
+      // printstreamㅇ으로 편하게 string 읺쇄 가능
       PrintStream ps = new PrintStream(fos);
       ps.print(Arrays.toString(mfccInput));
       ps.close();
@@ -757,15 +735,15 @@ public class SpeechActivity extends Activity
 
     // Transpose
       float[][][][] reshaped_mfccInput = new float[1][50][431][3];
-      for(int second_d =0;second_d<SECOND_DIM;second_d++){
-        for(int third_d =0;third_d<THIRD_DIM;third_d++){
-          // 세번 반복할 애 차원
-          float current_input = temp_reshaped_mfccInput[third_d][second_d];
-          for(int fourth_d =0; fourth_d<FOURTH_DIM; fourth_d++){
-            reshaped_mfccInput[0][second_d][third_d][fourth_d] = current_input;
-          }
+    for(int second_d =0;second_d<SECOND_DIM;second_d++){
+      for(int third_d =0;third_d<THIRD_DIM;third_d++){
+        // 세번 반복할 애 차원
+        float current_input = temp_reshaped_mfccInput[third_d][second_d];
+        for(int fourth_d =0; fourth_d<FOURTH_DIM; fourth_d++){
+          reshaped_mfccInput[0][second_d][third_d][fourth_d] = current_input;
         }
       }
+    }
 //    Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0].lenth);
 //      Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0].lenth);
     Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][0]);
