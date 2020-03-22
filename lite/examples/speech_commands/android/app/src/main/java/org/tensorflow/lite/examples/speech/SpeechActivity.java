@@ -143,15 +143,7 @@ public class SpeechActivity extends Activity
   private ImageView bottomSheetArrowImageView;
 
   private TextView yesTextView,
-      noTextView,
-      upTextView,
-      downTextView,
-      leftTextView,
-      rightTextView,
-      onTextView,
-      offTextView,
-      stopTextView,
-      goTextView;
+      noTextView;
   private TextView sampleRateTextView, inferenceTimeTextView;
   private ImageView plusImageView, minusImageView;
   private SwitchCompat apiSwitchCompat;
@@ -243,14 +235,6 @@ public class SpeechActivity extends Activity
 
     yesTextView = findViewById(R.id.yes);
     noTextView = findViewById(R.id.no);
-    upTextView = findViewById(R.id.up);
-    downTextView = findViewById(R.id.down);
-    leftTextView = findViewById(R.id.left);
-    rightTextView = findViewById(R.id.right);
-    onTextView = findViewById(R.id.on);
-    offTextView = findViewById(R.id.off);
-    stopTextView = findViewById(R.id.stop);
-    goTextView = findViewById(R.id.go);
 
     apiSwitchCompat.setOnCheckedChangeListener(this);
 
@@ -787,30 +771,6 @@ public class SpeechActivity extends Activity
                   case 1:
                     selectedTextView = noTextView;
                     break;
-                  case 2:
-                    selectedTextView = upTextView;
-                    break;
-                  case 3:
-                    selectedTextView = downTextView;
-                    break;
-                  case 4:
-                    selectedTextView = leftTextView;
-                    break;
-                  case 5:
-                    selectedTextView = rightTextView;
-                    break;
-                  case 6:
-                    selectedTextView = onTextView;
-                    break;
-                  case 7:
-                    selectedTextView = offTextView;
-                    break;
-                  case 8:
-                    selectedTextView = stopTextView;
-                    break;
-                  case 9:
-                    selectedTextView = goTextView;
-                    break;
                 }
 
                 if (selectedTextView != null) {
@@ -832,7 +792,7 @@ public class SpeechActivity extends Activity
                               getResources().getColor(android.R.color.darker_gray));
                         }
                       },
-                      750);
+                      1500); // 그 상황이 지속되는 시간을 늘리기
                 }
               }
             }
@@ -1014,30 +974,6 @@ public class SpeechActivity extends Activity
                       break;
                     case 1:
                       selectedTextView = noTextView;
-                      break;
-                    case 2:
-                      selectedTextView = upTextView;
-                      break;
-                    case 3:
-                      selectedTextView = downTextView;
-                      break;
-                    case 4:
-                      selectedTextView = leftTextView;
-                      break;
-                    case 5:
-                      selectedTextView = rightTextView;
-                      break;
-                    case 6:
-                      selectedTextView = onTextView;
-                      break;
-                    case 7:
-                      selectedTextView = offTextView;
-                      break;
-                    case 8:
-                      selectedTextView = stopTextView;
-                      break;
-                    case 9:
-                      selectedTextView = goTextView;
                       break;
                   }
 
