@@ -104,7 +104,7 @@ public class SpeechActivity extends Activity
   private static final long AVERAGE_WINDOW_DURATION_MS = 1000;
   private static final float DETECTION_THRESHOLD = 0.50f;
   private static final int SUPPRESSION_MS = 1500;
-  private static final int MINIMUM_COUNT = 3;
+  private static final int MINIMUM_COUNT = 1; // 최소한 개수인거 같은데 이걸 조정해줘야 에러가 안뜸...
   private static final long MINIMUM_TIME_BETWEEN_SAMPLES_MS = 30;
   // !!
   // label 종류 적는 파일

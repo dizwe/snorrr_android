@@ -108,6 +108,7 @@ public class RecognizeCommands {
 
     Log.v("Results======> ",  Arrays.toString(currentResults));
 
+    // previousResults에는 new Pair<Long, float[]>(currentTimeMS, currentResults)가 있다!!
     if ((!previousResults.isEmpty()) && (currentTimeMS < previousResults.getFirst().first)) {
       throw new RuntimeException(
           "You must feed results in increasing time order, but received a timestamp of "
@@ -117,6 +118,7 @@ public class RecognizeCommands {
     }
 
     int howManyResults = previousResults.size();
+    Log.v("howManyResults======> ",""+howManyResults);
     // Ignore any results that are coming in too frequently.
     if (howManyResults > 1) {
       final long timeSinceMostRecent = currentTimeMS - previousResults.getLast().first;

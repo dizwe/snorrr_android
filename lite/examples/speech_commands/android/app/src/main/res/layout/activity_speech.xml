@@ -19,7 +19,7 @@
     android:layout_height="match_parent"
     android:background="#00000000">
 
-    <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
@@ -44,7 +44,7 @@
             android:layout_gravity="top"
             android:background="@color/tfe_color_primary"
             android:padding="10dp"
-            android:text="Say one of the words below!"
+            android:text="Snorrr..."
             android:textAlignment="center"
             android:textColor="@android:color/white"
             android:textSize="16dp" />
@@ -73,7 +73,7 @@
                     android:layout_weight=".5"
                     android:background="@drawable/round_corner_text_bg_unselected"
                     android:gravity="center"
-                    android:text="Yes" />
+                    android:text="Not Snore" />
 
                 <TextView
                     android:id="@+id/no"
@@ -83,7 +83,7 @@
                     android:layout_weight=".5"
                     android:background="@drawable/round_corner_text_bg_unselected"
                     android:gravity="center"
-                    android:text="No" />
+                    android:text="Snore" />
 
             </LinearLayout>
 
