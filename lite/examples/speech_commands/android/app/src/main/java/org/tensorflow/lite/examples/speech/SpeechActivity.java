@@ -227,7 +227,7 @@ public class SpeechActivity extends Activity
     // Start the recording and recognition threads.
     requestMicrophonePermission();
     startRecording();
-    // startRecognition();
+    startRecognition();
 
     sampleRateTextView = findViewById(R.id.sample_rate);
     inferenceTimeTextView = findViewById(R.id.inference_info);
@@ -507,12 +507,13 @@ public class SpeechActivity extends Activity
 
       // recordingbuffer와 audioBuffer차이 audiobuffer에 읽어온걸 recording buffer에 잘라서 넣기
       recordingBufferLock.lock(); // mutextLock 같은거!!
+      // 계속해서 돌아가고 있습니당!!
       try {
         // arraycopy(Object src, int srcPos, Object dest, int destPos, int length)음
         // 아 round robin으로 만드려고 앞뒤를 자르는거구나!!! 이해이해
         System.arraycopy(audioBuffer, 0, recordingBuffer, recordingOffset, firstCopyLength); // 여기서 0
         System.arraycopy(audioBuffer, firstCopyLength, recordingBuffer, 0, secondCopyLength);
-        recordingOffset = newRecordingOffset % maxLength; 
+        recordingOffset = newRecordingOffset % maxLength;
       } finally {
         recordingBufferLock.unlock();
       }
@@ -612,82 +613,7 @@ public class SpeechActivity extends Activity
     recognitionThread = null;
   }
 
-  public byte[] inputStreamToByteArray(InputStream inStream) throws IOException {
-    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-    byte[] buffer = new byte[8192];
-    int bytesRead;
-    while ((bytesRead = inStream.read(buffer)) > 0) {
-      baos.write(buffer, 0, bytesRead);
-    }
-    return baos.toByteArray();
-  }
-
-  private void recognize() {
-
-    Log.v(LOG_TAG, "Start recognition");
-
-
-    short[] inputBuffer = new short[RECORDING_LENGTH];
-    float[][] floatInputBuffer = new float[RECORDING_LENGTH][1];
-    // !! Double로 받아야 하는듯
-    double[] doubleInputBuffer = new double[RECORDING_LENGTH];
-//    float[][] outputScores = new float[1][labels.size()];
-    float[][] outputScores = new float[1][2];
-    int[] sampleRateList = new int[] {SAMPLE_RATE};
-
-    // Loop, grabbing recorded data and running the recognition model on it.
-    // !!! 계속 돌아가는데 한번만 돌악게 해보자
-//    while (shouldContinueRecognition) {
-      long startTime = new Date().getTime();
-//      // The recording thread places data in this round-robin buffer, so lock to
-//      // make sure there's no writing happening and then copy it to our own
-//      // local version.
-//      recordingBufferLock.lock();
-//      try {
-//        int maxLength = recordingBuffer.length;
-//        int firstCopyLength = maxLength - recordingOffset;
-//        int secondCopyLength = recordingOffset;
-//        System.arraycopy(recordingBuffer, recordingOffset, inputBuffer, 0, firstCopyLength);
-//        System.arraycopy(recordingBuffer, 0, inputBuffer, firstCopyLength, secondCopyLength);
-//      } finally {
-//        recordingBufferLock.unlock();
-//      }
-    recordingBufferLock.lock();
-    try {
-      int maxLength = recordingBuffer.length;
-      System.arraycopy(recordingBuffer, 0, inputBuffer, 0, maxLength);
-    } finally {
-      recordingBufferLock.unlock();
-    }
-
-      /////////////////////////////////////////
-    // !!! SAMPE RATE에 맞춰서 load 해줘야 한다
-    // 이유는 모르겠는데 half로 계산됨!(학습도리때부터) -> 초를 5초로 줄임
-    double[] doubleInputBuffer2 = new double[RECORDING_LENGTH/2];
-    for (int i = RECORDING_LENGTH/2; i < RECORDING_LENGTH-1; ++i) {
-        doubleInputBuffer2[i-RECORDING_LENGTH/2] = inputBuffer[i] / 32767.0f;
-      }
-
-//    for (int i = 0; i < RECORDING_LENGTH; ++i) {
-//      doubleInputBuffer[i] = inputBuffer[i] / 32767.0f;
-//    }
-      //MFCC java library.
-      // MFCC 로바꾸기
-      MFCC mfccConvert = new MFCC();
-      float[] mfccInput = mfccConvert.process(doubleInputBuffer2);
-
-      // 5초따리
-      // 16000으로 하면 3140 이 원래 input 근데 22050으로 바꾸면 4320 둘다 0.19
-      // 그니까 5초에 160000이면 157 22050이면 216
-      // 10초면 432니까 비슷비슷??
-      // 그 1차원임! 157X20 = 3140
-      // mfcc class에서 직접 sampling rate 바꿔야 함 -> 그러면 상이즈 맞게 나옴!
-      Log.v(LOG_TAG, "MFCC_SIZE======> " + mfccInput.length);
-      Log.v(LOG_TAG, "MFCC Input======> " + Arrays.toString(mfccInput));
-    Log.v(LOG_TAG, "MFCC Input======> " + mfccInput[0]);
-
-    // 파일로 적어서 디버깅(python에서 librosa 시각화)
-    // https://stackoverflow.com/questions/4069028/write-string-to-output-stream
+  private void mfcc_file_debugging(float[] mfccInput) {
     try {
       File file = new File(getExternalFilesDir(null), "test.csv");
       OutputStream fos = new FileOutputStream(file);
@@ -696,31 +622,39 @@ public class SpeechActivity extends Activity
       ps.print(Arrays.toString(mfccInput));
       ps.close();
     }catch(IOException e){
-        e.printStackTrace();
-      }
+      e.printStackTrace();
+    }
+  }
 
-      float sum = 0;
-      for (int i=0; i<mfccInput.length; i++) {
-        sum += mfccInput[i];
-      }
+  private void standardization(float[] mfccInput) {
+    // java call by reference?
+    // https://stackoverflow.com/questions/12757841/are-arrays-passed-by-value-or-passed-by-reference-in-java
+    // array도 Objeet기 때문에 안에 contents를 바꾼
 
-      float avg = (float)sum / (float)mfccInput.length;
+    float sum = 0;
+    for (int i=0; i<mfccInput.length; i++) {
+      sum += mfccInput[i];
+    }
 
-      float total =0;
-      for (int i=0; i<mfccInput.length; i++)
-        total += (mfccInput[i]-avg)*(mfccInput[i]-avg);
+    float avg = (float)sum / (float)mfccInput.length;
 
-      float dev = total / mfccInput.length; // 분산
-      float std = (float)Math.sqrt(dev);
+    float total =0;
+    for (int i=0; i<mfccInput.length; i++)
+      total += (mfccInput[i]-avg)*(mfccInput[i]-avg);
 
-      float eps = (float)1e-6;
-      for (int i=0; i<mfccInput.length; i++) {
-        //(spec - mean) / (std + eps)
-        mfccInput[i] = (mfccInput[i] - avg)/ (std+eps);
-      }
-      Log.v(LOG_TAG, "MFCC Reged Input======> " + mfccInput[0]);
+    float dev = total / mfccInput.length; // 분산
+    float std = (float)Math.sqrt(dev);
 
-      // 일단 431,50 shape로 만들기
+    float eps = (float)1e-6;
+    for (int i=0; i<mfccInput.length; i++) {
+      //(spec - mean) / (std + eps)
+      mfccInput[i] = (mfccInput[i] - avg)/ (std+eps);
+    }
+    Log.v(LOG_TAG, "MFCC Reged Input2======> " + mfccInput[0]);
+  }
+
+  private float[][][][] changeShape(float[] mfccInput) {
+    // 일단 431,50 shape로 만들기
     // 만들고 나서 reshape?
     int SECOND_DIM = 50;
     int THIRD_DIM = 431;
@@ -734,7 +668,7 @@ public class SpeechActivity extends Activity
     }
 
     // Transpose
-      float[][][][] reshaped_mfccInput = new float[1][50][431][3];
+    float[][][][] reshaped_mfccInput = new float[1][50][431][3];
     for(int second_d =0;second_d<SECOND_DIM;second_d++){
       for(int third_d =0;third_d<THIRD_DIM;third_d++){
         // 세번 반복할 애 차원
@@ -744,21 +678,85 @@ public class SpeechActivity extends Activity
         }
       }
     }
-//    Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0].lenth);
-//      Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0].lenth);
-    Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][0]);
-    Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][1]);
-    Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][2]);
+    return reshaped_mfccInput;
+  }
 
-//      Object[] inputArray = {floatInputBuffer, sampleRateList};
+  private void recognize() {
+
+    Log.v(LOG_TAG, "Start recognition");
+
+
+    short[] inputBuffer = new short[RECORDING_LENGTH];
+//    float[][] floatInputBuffer = new float[RECORDING_LENGTH][1];
+    // !! Double로 받아야 하는듯
+    double[] doubleInputBuffer = new double[RECORDING_LENGTH];
+//    float[][] outputScores = new float[1][labels.size()];
+    float[][] outputScores = new float[1][2];
+    int[] sampleRateList = new int[] {SAMPLE_RATE};
+
+    // Loop, grabbing recorded data and running the recognition model on it.
+    // !!! 계속 돌아가는데 한번만 돌악게 해보자
+    while (shouldContinueRecognition) {
+      long startTime = new Date().getTime();
+
+      recordingBufferLock.lock();
+      try {
+        int maxLength = recordingBuffer.length;
+        int firstCopyLength = maxLength - recordingOffset;
+        int secondCopyLength = recordingOffset;
+        // 라운드 로빈으로 되어있는거 순서맞춰 주기
+        System.arraycopy(recordingBuffer, recordingOffset, inputBuffer, 0, firstCopyLength);
+        System.arraycopy(recordingBuffer, 0, inputBuffer, firstCopyLength, secondCopyLength);
+      } finally {
+        recordingBufferLock.unlock();
+      }
+
+      /////////////////////////////////////////
+      // !!! SAMPE RATE에 맞춰서 load 해줘야 한다
+      // 이유는 모르겠는데 half로 계산됨!(학습도리때부터) -> 초를 5초로 줄임
+      double[] doubleInputBuffer2 = new double[RECORDING_LENGTH/2];
+      for (int i = RECORDING_LENGTH/2; i < RECORDING_LENGTH-1; ++i) {
+          doubleInputBuffer2[i-RECORDING_LENGTH/2] = inputBuffer[i] / 32767.0f;
+      }
+
+      for (int i = 0; i < RECORDING_LENGTH; ++i) {
+        doubleInputBuffer[i] = inputBuffer[i] / 32767.0f;
+      }
+
+      //MFCC java library.
+      // MFCC 로바꾸기
+      MFCC mfccConvert = new MFCC();
+      float[] mfccInput = mfccConvert.process(doubleInputBuffer2);
+
+      // 5초따리
+      // 16000으로 하면 3140 이 원래 input 근데 22050으로 바꾸면 4320 둘다 0.19
+      // 그니까 5초에 160000이면 157 22050이면 216
+      // 10초면 432니까 비슷비슷??
+      // 그 1차원임! 157X20 = 3140
+      // mfcc class에서 직접 sampling rate 바꿔야 함 -> 그러면 상이즈 맞게 나옴!
+      Log.v(LOG_TAG, "MFCC_SIZE======> " + mfccInput.length);
+      Log.v(LOG_TAG, "MFCC Input======> " + Arrays.toString(mfccInput));
+      Log.v(LOG_TAG, "MFCC Input======> " + mfccInput[0]);
+
+      // 파일로 적어서 디버깅(python에서 librosa 시각화)
+      // https://stackoverflow.com/questions/4069028/write-string-to-output-stream
+      mfcc_file_debugging(mfccInput); // array로 디버깅하기
+      standardization(mfccInput);
+      float[][][][] reshaped_mfccInput = changeShape(mfccInput);
+
+//      Log.v(LOG_TAG, "reshaped MFCC Input SHAPE1======> " + reshaped_mfccInput[0].length);
+//      Log.v(LOG_TAG, "reshaped MFCC Input SHAPE2======> " + reshaped_mfccInput[0][0].length);
+//      Log.v(LOG_TAG, "reshaped MFCC Input SHAPE3======> " + reshaped_mfccInput[0][0][0].length);
+//      Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][0]);
+//      Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][1]);
+//      Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][2]);
+
       Object[] inputArray = {reshaped_mfccInput};
       Map<Integer, Object> outputMap = new HashMap<>();
       outputMap.put(0, outputScores);
 
-      // Run the model.
-      // inputArray
+      // Run the model with inputArray
       tfLite.runForMultipleInputsOutputs(inputArray, outputMap);
-//      tfLite.runForMultipleInputsOutputs(reshaped_mfccInput, outputMap);
 
       // Use the smoother to figure out if we've had a real recognition event.
       long currentTime = System.currentTimeMillis();
@@ -845,6 +843,234 @@ public class SpeechActivity extends Activity
       } catch (InterruptedException e) {
         // Ignore
       }
+    }
+
+    Log.v(LOG_TAG, "End recognition");
+  }
+
+  private void recognize_once() {
+
+    Log.v(LOG_TAG, "Start recognition");
+
+
+    short[] inputBuffer = new short[RECORDING_LENGTH];
+    float[][] floatInputBuffer = new float[RECORDING_LENGTH][1];
+    // !! Double로 받아야 하는듯
+    double[] doubleInputBuffer = new double[RECORDING_LENGTH];
+//    float[][] outputScores = new float[1][labels.size()];
+    float[][] outputScores = new float[1][2];
+    int[] sampleRateList = new int[] {SAMPLE_RATE};
+
+    // Loop, grabbing recorded data and running the recognition model on it.
+    // !!! 계속 돌아가는데 한번만 돌악게 해보자
+//    while (shouldContinueRecognition) {
+    long startTime = new Date().getTime();
+//      // The recording thread places data in this round-robin buffer, so lock to
+//      // make sure there's no writing happening and then copy it to our own
+//      // local version.
+//      recordingBufferLock.lock();
+//      try {
+//        int maxLength = recordingBuffer.length;
+//        int firstCopyLength = maxLength - recordingOffset;
+//        int secondCopyLength = recordingOffset;
+//        System.arraycopy(recordingBuffer, recordingOffset, inputBuffer, 0, firstCopyLength);
+//        System.arraycopy(recordingBuffer, 0, inputBuffer, firstCopyLength, secondCopyLength);
+//      } finally {
+//        recordingBufferLock.unlock();
+//      }
+    recordingBufferLock.lock();
+    try {
+      int maxLength = recordingBuffer.length;
+      System.arraycopy(recordingBuffer, 0, inputBuffer, 0, maxLength);
+    } finally {
+      recordingBufferLock.unlock();
+    }
+
+    /////////////////////////////////////////
+    // !!! SAMPE RATE에 맞춰서 load 해줘야 한다
+    // 이유는 모르겠는데 half로 계산됨!(학습도리때부터) -> 초를 5초로 줄임
+    double[] doubleInputBuffer2 = new double[RECORDING_LENGTH/2];
+    for (int i = RECORDING_LENGTH/2; i < RECORDING_LENGTH-1; ++i) {
+      doubleInputBuffer2[i-RECORDING_LENGTH/2] = inputBuffer[i] / 32767.0f;
+    }
+
+//    for (int i = 0; i < RECORDING_LENGTH; ++i) {
+//      doubleInputBuffer[i] = inputBuffer[i] / 32767.0f;
+//    }
+    //MFCC java library.
+    // MFCC 로바꾸기
+    MFCC mfccConvert = new MFCC();
+    float[] mfccInput = mfccConvert.process(doubleInputBuffer2);
+
+    // 5초따리
+    // 16000으로 하면 3140 이 원래 input 근데 22050으로 바꾸면 4320 둘다 0.19
+    // 그니까 5초에 160000이면 157 22050이면 216
+    // 10초면 432니까 비슷비슷??
+    // 그 1차원임! 157X20 = 3140
+    // mfcc class에서 직접 sampling rate 바꿔야 함 -> 그러면 상이즈 맞게 나옴!
+    Log.v(LOG_TAG, "MFCC_SIZE======> " + mfccInput.length);
+    Log.v(LOG_TAG, "MFCC Input======> " + Arrays.toString(mfccInput));
+    Log.v(LOG_TAG, "MFCC Input======> " + mfccInput[0]);
+
+    // 파일로 적어서 디버깅(python에서 librosa 시각화)
+    // https://stackoverflow.com/questions/4069028/write-string-to-output-stream
+    try {
+      File file = new File(getExternalFilesDir(null), "test.csv");
+      OutputStream fos = new FileOutputStream(file);
+      // printstreamㅇ으로 편하게 string 읺쇄 가능
+      PrintStream ps = new PrintStream(fos);
+      ps.print(Arrays.toString(mfccInput));
+      ps.close();
+    }catch(IOException e){
+      e.printStackTrace();
+    }
+
+    float sum = 0;
+    for (int i=0; i<mfccInput.length; i++) {
+      sum += mfccInput[i];
+    }
+
+    float avg = (float)sum / (float)mfccInput.length;
+
+    float total =0;
+    for (int i=0; i<mfccInput.length; i++)
+      total += (mfccInput[i]-avg)*(mfccInput[i]-avg);
+
+    float dev = total / mfccInput.length; // 분산
+    float std = (float)Math.sqrt(dev);
+
+    float eps = (float)1e-6;
+    for (int i=0; i<mfccInput.length; i++) {
+      //(spec - mean) / (std + eps)
+      mfccInput[i] = (mfccInput[i] - avg)/ (std+eps);
+    }
+    Log.v(LOG_TAG, "MFCC Reged Input======> " + mfccInput[0]);
+
+    // 일단 431,50 shape로 만들기
+    // 만들고 나서 reshape?
+    int SECOND_DIM = 50;
+    int THIRD_DIM = 431;
+    int FOURTH_DIM = 3; // 그안에서 세번 반
+    float[][] temp_reshaped_mfccInput = new float[431][50];
+    for(int third_d =0;third_d<THIRD_DIM;third_d++){
+      for(int second_d =0;second_d<SECOND_DIM;second_d++){
+        float current_input = mfccInput[SECOND_DIM*third_d+second_d];
+        temp_reshaped_mfccInput[third_d][second_d] = current_input;
+      }
+    }
+
+    // Transpose
+    float[][][][] reshaped_mfccInput = new float[1][50][431][3];
+    for(int second_d =0;second_d<SECOND_DIM;second_d++){
+      for(int third_d =0;third_d<THIRD_DIM;third_d++){
+        // 세번 반복할 애 차원
+        float current_input = temp_reshaped_mfccInput[third_d][second_d];
+        for(int fourth_d =0; fourth_d<FOURTH_DIM; fourth_d++){
+          reshaped_mfccInput[0][second_d][third_d][fourth_d] = current_input;
+        }
+      }
+    }
+//    Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0].lenth);
+//      Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0].lenth);
+    Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][0]);
+    Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][1]);
+    Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][2]);
+
+//      Object[] inputArray = {floatInputBuffer, sampleRateList};
+    Object[] inputArray = {reshaped_mfccInput};
+    Map<Integer, Object> outputMap = new HashMap<>();
+    outputMap.put(0, outputScores);
+
+    // Run the model.
+    // inputArray
+    tfLite.runForMultipleInputsOutputs(inputArray, outputMap);
+//      tfLite.runForMultipleInputsOutputs(reshaped_mfccInput, outputMap);
+
+    // Use the smoother to figure out if we've had a real recognition event.
+    long currentTime = System.currentTimeMillis();
+    final RecognizeCommands.RecognitionResult result =
+            recognizeCommands.processLatestResults(outputScores[0], currentTime);
+    lastProcessingTimeMs = new Date().getTime() - startTime;
+
+    runOnUiThread(
+            new Runnable() {
+              @Override
+              public void run() {
+
+                inferenceTimeTextView.setText(lastProcessingTimeMs + " ms");
+
+                // If we do have a new command, highlight the right list entry.
+                if (!result.foundCommand.startsWith("_") && result.isNewCommand) {
+                  int labelIndex = -1;
+                  for (int i = 0; i < labels.size(); ++i) {
+                    if (labels.get(i).equals(result.foundCommand)) {
+                      labelIndex = i;
+                    }
+                  }
+                  Log.v(LOG_TAG, "label num======> " + labelIndex);
+                  switch (labelIndex) {
+                    case 0:
+                      selectedTextView = yesTextView;
+                      break;
+                    case 1:
+                      selectedTextView = noTextView;
+                      break;
+                    case 2:
+                      selectedTextView = upTextView;
+                      break;
+                    case 3:
+                      selectedTextView = downTextView;
+                      break;
+                    case 4:
+                      selectedTextView = leftTextView;
+                      break;
+                    case 5:
+                      selectedTextView = rightTextView;
+                      break;
+                    case 6:
+                      selectedTextView = onTextView;
+                      break;
+                    case 7:
+                      selectedTextView = offTextView;
+                      break;
+                    case 8:
+                      selectedTextView = stopTextView;
+                      break;
+                    case 9:
+                      selectedTextView = goTextView;
+                      break;
+                  }
+
+                  if (selectedTextView != null) {
+                    selectedTextView.setBackgroundResource(R.drawable.round_corner_text_bg_selected);
+                    final String score = Math.round(result.score * 100) + "%";
+                    selectedTextView.setText(selectedTextView.getText() + "\n" + score);
+                    selectedTextView.setTextColor(
+                            getResources().getColor(android.R.color.holo_orange_light));
+                    handler.postDelayed(
+                            new Runnable() {
+                              @Override
+                              public void run() {
+                                String origionalString =
+                                        selectedTextView.getText().toString().replace(score, "").trim();
+                                selectedTextView.setText(origionalString);
+                                selectedTextView.setBackgroundResource(
+                                        R.drawable.round_corner_text_bg_unselected);
+                                selectedTextView.setTextColor(
+                                        getResources().getColor(android.R.color.darker_gray));
+                              }
+                            },
+                            750);
+                  }
+                }
+              }
+            });
+    try {
+      // We don't need to run too frequently, so snooze for a bit.
+      Thread.sleep(MINIMUM_TIME_BETWEEN_SAMPLES_MS);
+    } catch (InterruptedException e) {
+      // Ignore
+    }
 //    }
 
     Log.v(LOG_TAG, "End recognition");
