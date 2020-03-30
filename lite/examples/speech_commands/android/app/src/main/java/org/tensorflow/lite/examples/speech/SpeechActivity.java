@@ -96,7 +96,7 @@ public class SpeechActivity extends Activity
   // you are running your own model.
 
   //  private static final int SAMPLE_RATE = 16000; !!
-//  private static final int SAMPLE_RATE = 22050;
+//  private static final int SAMPLE_RATE = 44100;
   private static final int SAMPLE_RATE = 22050;
   //  private static final int SAMPLE_DURATION_MS = 1000; !!
   private static final int SAMPLE_DURATION_MS = 10000;
@@ -446,7 +446,9 @@ public class SpeechActivity extends Activity
     // !!! 이걸로 record initialize
     AudioRecord record =
             new AudioRecord(
-                    MediaRecorder.AudioSource.DEFAULT,
+//                    MediaRecorder.AudioSource.MIC,
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
+//                    MediaRecorder.AudioSource.DEFAULT,
                     SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT,
@@ -499,14 +501,12 @@ public class SpeechActivity extends Activity
             File file = new File(getExternalFilesDir(null), "test"+num+".wav");
             outputStream = new FileOutputStream(file);
 
-            Log.d(LOG_TAG, "External file dir: "
-                    + getExternalFilesDir(null));
+            Log.d(LOG_TAG, "External file dir:" + getExternalFilesDir(null));
 
             // 여기는 한 버퍼만 들어가니까 10초 넘게 하려면 한참 더해야 되는건가??
-            Log.d(LOG_TAG, "recordingbufferinfo: " +recordingBuffer[1800]); // 값이 적히긴 하는데/...
             Log.d(LOG_TAG, "recordingbufferinfo: " + recordingBuffer.length +" "+  Arrays.toString(recordingBuffer));
             // !!으어ㅓ어어엉엉 값이 달랐따!!
-            writeWavHeader(outputStream,(short)1, (short)SAMPLE_RATE, (short)16);
+            writeWavHeader(outputStream,(short)1, SAMPLE_RATE, (short)16);
 //              writeWavHeader(outputStream,(short)AudioFormat.CHANNEL_IN_MONO, (short)SAMPLE_RATE, (short)AudioFormat.ENCODING_PCM_16BIT);
             // 여기에 파일 씀
             Log.d(LOG_TAG, "Number Byte Read: " + numberRead);
@@ -545,7 +545,7 @@ public class SpeechActivity extends Activity
           } catch (IOException e) {
             e.printStackTrace();
           }
-//            shouldContinue = false; ///!!!!!!!!! 일단 삭
+//            shouldContinue = false; ///!!!!!!!!! 일단 삭제
         }
         recordingOffset += numberRead;
       } finally {
@@ -615,7 +615,7 @@ public class SpeechActivity extends Activity
 //      recordingBufferLock.lock();
 //      try {
 //        int maxLength = recordingBuffer.length;
-//        int firstCopyLength = maxLength - recordingOffset;
+//        int firstCopyLength = maxLength - recordingOffset;32
 //        int secondCopyLength = recordingOffset;
 //        System.arraycopy(recordingBuffer, recordingOffset, inputBuffer, 0, firstCopyLength);
 //        System.arraycopy(recordingBuffer, 0, inputBuffer, firstCopyLength, secondCopyLength);
@@ -676,6 +676,7 @@ public class SpeechActivity extends Activity
     /////////////////////////////////////////
     // !!! SAMPE RATE에 맞춰서 load 해줘야 한다
     for (int i = 0; i < RECORDING_LENGTH; ++i) {
+      //  PCM16에서 나온거
       doubleInputBuffer[i] = inputBuffer[i] / 32767.0f;
     }
 

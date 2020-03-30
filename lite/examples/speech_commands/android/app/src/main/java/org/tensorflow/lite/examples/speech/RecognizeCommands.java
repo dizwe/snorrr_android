@@ -45,12 +45,12 @@ public class RecognizeCommands {
   private static final long MINIMUM_TIME_FRACTION = 4;
 
   public RecognizeCommands(
-      List<String> inLabels,
-      long inAverageWindowDurationMs,
-      float inDetectionThreshold,
-      int inSuppressionMS,
-      int inMinimumCount,
-      long inMinimumTimeBetweenSamplesMS) {
+          List<String> inLabels,
+          long inAverageWindowDurationMs,
+          float inDetectionThreshold,
+          int inSuppressionMS,
+          int inMinimumCount,
+          long inMinimumTimeBetweenSamplesMS) {
     labels = inLabels;
     averageWindowDurationMs = inAverageWindowDurationMs;
     detectionThreshold = inDetectionThreshold;
@@ -100,25 +100,23 @@ public class RecognizeCommands {
   public RecognitionResult processLatestResults(float[] currentResults, long currentTimeMS) {
     if (currentResults.length != labelsCount) {
       throw new RuntimeException(
-          "The results for recognition should contain "
-              + labelsCount
-              + " elements, but there are "
-              + currentResults.length);
+              "The results for recognition should contain "
+                      + labelsCount
+                      + " elements, but there are "
+                      + currentResults.length);
     }
 
     Log.v("Results======> ",  Arrays.toString(currentResults));
 
-    // previousResults에는 new Pair<Long, float[]>(currentTimeMS, currentResults)가 있다!!
     if ((!previousResults.isEmpty()) && (currentTimeMS < previousResults.getFirst().first)) {
       throw new RuntimeException(
-          "You must feed results in increasing time order, but received a timestamp of "
-              + currentTimeMS
-              + " that was earlier than the previous one of "
-              + previousResults.getFirst().first);
+              "You must feed results in increasing time order, but received a timestamp of "
+                      + currentTimeMS
+                      + " that was earlier than the previous one of "
+                      + previousResults.getFirst().first);
     }
 
     int howManyResults = previousResults.size();
-    Log.v("howManyResults======> ",""+howManyResults);
     // Ignore any results that are coming in too frequently.
     if (howManyResults > 1) {
       final long timeSinceMostRecent = currentTimeMS - previousResults.getLast().first;
@@ -148,11 +146,11 @@ public class RecognizeCommands {
     Log.v("Number of Results: ", String.valueOf(howManyResults));
 
     Log.v(
-        "Duration < WD/FRAC?",
-        String.valueOf((samplesDuration < (averageWindowDurationMs / MINIMUM_TIME_FRACTION))));
+            "Duration < WD/FRAC?",
+            String.valueOf((samplesDuration < (averageWindowDurationMs / MINIMUM_TIME_FRACTION))));
 
     if ((howManyResults < minimumCount)
-    //        || (samplesDuration < (averageWindowDurationMs / MINIMUM_TIME_FRACTION))
+      //        || (samplesDuration < (averageWindowDurationMs / MINIMUM_TIME_FRACTION))
     ) {
       Log.v("RecognizeResult", "Too few results");
       return new RecognitionResult(previousTopLabel, 0.0f, false);
