@@ -20,14 +20,12 @@ public class MFCC {
 
 //	private final static int       n_mfcc       		= 20;
 	private final static int       n_mfcc       		= 50;
-//	private final static double    fMin                 = 0.0;
-	private final static double    fMin                 = 20.0;
+	private final static double    fMin                 = 0.0;
+//	private final static double    fMin                 = 20.0;
 	private final static int       n_fft                = 2048;
 	private final static int       hop_length           = 512;
 	private final static int	   n_mels               = 128;
 
-//	private final static double    sampleRate           = 16000.0;
-//	private final static double    sampleRate           = 22050.0;
 	private final static double    sampleRate           = 44100.0;
 	private final static double    fMax                 = sampleRate/2.0;
 

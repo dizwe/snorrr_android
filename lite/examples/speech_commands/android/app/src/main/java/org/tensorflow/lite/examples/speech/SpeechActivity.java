@@ -74,6 +74,7 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -211,10 +212,10 @@ public class SpeechActivity extends Activity
     }
 
     // RECORDING_LENGTH는 220500
-    // array([  1,  50, 431,   3], dtype=int32) 가 input shape였음
+    // array([  1,  50, 862,   3], dtype=int32) 가 input shape였음
     // array([1, 2], dtype=int32) output shape!
     // 하나 input 만 넣으거니까 idx 0만 있으면 됨.
-    tfLite.resizeInput(0, new int[] {1, 50, 431, 3});
+    tfLite.resizeInput(0, new int[] {1, 50, 862, 3});
 
     // Start the recording and recognition threads.
     requestMicrophonePermission();
@@ -418,7 +419,7 @@ public class SpeechActivity extends Activity
 
       // 여기는 한 버퍼만 들어가니까 10초 넘게 하려면 한참 더해야 되는건가?
       Log.d(LOG_TAG, "recordingbufferinfo: " + recordingBuffer.length +" "+  Arrays.toString(recordingBuffer));
-      writeWavHeader(outputStream,(short)1, (short)SAMPLE_RATE, (short)16);
+      writeWavHeader(outputStream,(short)1, SAMPLE_RATE, (short)16);
       // writeWavHeader(outputStream,(short)AudioFormat.CHANNEL_IN_MONO, (short)SAMPLE_RATE, (short)AudioFormat.ENCODING_PCM_16BIT); // !!으어ㅓ어어엉엉 값이 달랐따!!이렇게 적으면 안됨
 
       // short to byte(recording buffer(short type) to byteBuffer(byte type))
@@ -463,7 +464,7 @@ public class SpeechActivity extends Activity
     // !!! 이걸로 record initialize
     AudioRecord record =
         new AudioRecord(
-            MediaRecorder.AudioSource.DEFAULT,
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
             SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
@@ -497,6 +498,7 @@ public class SpeechActivity extends Activity
         // 아 round robin으로 만드려고 앞뒤를 자르는거구나!!! 이해이해
         System.arraycopy(audioBuffer, 0, recordingBuffer, recordingOffset, firstCopyLength); // 여기서 0
         System.arraycopy(audioBuffer, firstCopyLength, recordingBuffer, 0, secondCopyLength);
+        Log.d(LOG_TAG, "audiobuffer: " + audioBuffer.length +" "+  Arrays.toString(audioBuffer));
         recordingOffset = newRecordingOffset % maxLength;
       } finally {
         recordingBufferLock.unlock();
@@ -527,7 +529,7 @@ public class SpeechActivity extends Activity
     // !!! 이걸로 record initialize
     AudioRecord record =
             new AudioRecord(
-                    MediaRecorder.AudioSource.DEFAULT,
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
                     SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT,
@@ -637,13 +639,31 @@ public class SpeechActivity extends Activity
     Log.v(LOG_TAG, "MFCC Reged Input2======> " + mfccInput[0]);
   }
 
+  private void normalization(double[] doubleInputBuffer) {
+    //  wav = 2*((wav - np.min(wav)) / (np.max(wav) - np.min(wav)))-1
+    double max_val = -32767.0f;
+    double min_val = +32767.0f;
+    for (int i = 0; i < RECORDING_LENGTH; ++i) {
+      if(doubleInputBuffer[i]> max_val){
+        max_val = doubleInputBuffer[i];
+      }
+      if(doubleInputBuffer[i] < min_val) {
+        min_val = doubleInputBuffer[i];
+      }
+    }
+    for (int i = 0; i < RECORDING_LENGTH; ++i) {
+      doubleInputBuffer[i] = 2 *(doubleInputBuffer[i]-min_val)/ (max_val-doubleInputBuffer[i]) -1;
+    }
+  }
+
+
   private float[][][][] changeShape(float[] mfccInput) {
-    // 일단 431,50 shape로 만들기
+    // 일단 862,50 shape로 만들기
     // 만들고 나서 reshape?
     int SECOND_DIM = 50;
-    int THIRD_DIM = 431;
+    int THIRD_DIM = 862;
     int FOURTH_DIM = 3; // 그안에서 세번 반
-    float[][] temp_reshaped_mfccInput = new float[431][50];
+    float[][] temp_reshaped_mfccInput = new float[862][50];
     for(int third_d =0;third_d<THIRD_DIM;third_d++){
       for(int second_d =0;second_d<SECOND_DIM;second_d++){
         float current_input = mfccInput[SECOND_DIM*third_d+second_d];
@@ -652,7 +672,7 @@ public class SpeechActivity extends Activity
     }
 
     // Transpose
-    float[][][][] reshaped_mfccInput = new float[1][50][431][3];
+    float[][][][] reshaped_mfccInput = new float[1][50][862][3];
     for(int second_d =0;second_d<SECOND_DIM;second_d++){
       for(int third_d =0;third_d<THIRD_DIM;third_d++){
         // 세번 반복할 애 차원
@@ -668,8 +688,6 @@ public class SpeechActivity extends Activity
   private void recognize() {
 
     Log.v(LOG_TAG, "Start recognition");
-
-
     short[] inputBuffer = new short[RECORDING_LENGTH];
 //    float[][] floatInputBuffer = new float[RECORDING_LENGTH][1];
     // !! Double로 받아야 하는듯
@@ -695,22 +713,14 @@ public class SpeechActivity extends Activity
         recordingBufferLock.unlock();
       }
 
-      /////////////////////////////////////////
-      // !!! SAMPE RATE에 맞춰서 load 해줘야 한다
-      // 이유는 모르겠는데 half로 계산됨!(학습도리때부터) -> 초를 5초로 줄임
-      double[] doubleInputBuffer2 = new double[RECORDING_LENGTH/2];
-      for (int i = RECORDING_LENGTH/2; i < RECORDING_LENGTH-1; ++i) {
-          doubleInputBuffer2[i-RECORDING_LENGTH/2] = inputBuffer[i] / 32767.0f;
-      }
-
       for (int i = 0; i < RECORDING_LENGTH; ++i) {
         doubleInputBuffer[i] = inputBuffer[i] / 32767.0f;
       }
-
+      normalization(doubleInputBuffer);
       //MFCC java library.
       // MFCC 로바꾸기
       MFCC mfccConvert = new MFCC();
-      float[] mfccInput = mfccConvert.process(doubleInputBuffer2);
+      float[] mfccInput = mfccConvert.process(doubleInputBuffer);
 
       // 5초따리
       // 16000으로 하면 3140 이 원래 input 근데 22050으로 바꾸면 4320 둘다 0.19
@@ -725,15 +735,8 @@ public class SpeechActivity extends Activity
       // 파일로 적어서 디버깅(python에서 librosa 시각화)
       // https://stackoverflow.com/questions/4069028/write-string-to-output-stream
       mfcc_file_debugging(mfccInput); // array로 디버깅하기
-      standardization(mfccInput);
+//      standardization(mfccInput);
       float[][][][] reshaped_mfccInput = changeShape(mfccInput);
-
-//      Log.v(LOG_TAG, "reshaped MFCC Input SHAPE1======> " + reshaped_mfccInput[0].length);
-//      Log.v(LOG_TAG, "reshaped MFCC Input SHAPE2======> " + reshaped_mfccInput[0][0].length);
-//      Log.v(LOG_TAG, "reshaped MFCC Input SHAPE3======> " + reshaped_mfccInput[0][0][0].length);
-//      Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][0]);
-//      Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][1]);
-//      Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][2]);
 
       Object[] inputArray = {reshaped_mfccInput};
       Map<Integer, Object> outputMap = new HashMap<>();
@@ -825,19 +828,6 @@ public class SpeechActivity extends Activity
     // !!! 계속 돌아가는데 한번만 돌악게 해보자
 //    while (shouldContinueRecognition) {
     long startTime = new Date().getTime();
-//      // The recording thread places data in this round-robin buffer, so lock to
-//      // make sure there's no writing happening and then copy it to our own
-//      // local version.
-//      recordingBufferLock.lock();
-//      try {
-//        int maxLength = recordingBuffer.length;
-//        int firstCopyLength = maxLength - recordingOffset;
-//        int secondCopyLength = recordingOffset;
-//        System.arraycopy(recordingBuffer, recordingOffset, inputBuffer, 0, firstCopyLength);
-//        System.arraycopy(recordingBuffer, 0, inputBuffer, firstCopyLength, secondCopyLength);
-//      } finally {
-//        recordingBufferLock.unlock();
-//      }
     recordingBufferLock.lock();
     try {
       int maxLength = recordingBuffer.length;
@@ -848,19 +838,15 @@ public class SpeechActivity extends Activity
 
     /////////////////////////////////////////
     // !!! SAMPE RATE에 맞춰서 load 해줘야 한다
-    // 이유는 모르겠는데 half로 계산됨!(학습도리때부터) -> 초를 5초로 줄임
-    double[] doubleInputBuffer2 = new double[RECORDING_LENGTH/2];
-    for (int i = RECORDING_LENGTH/2; i < RECORDING_LENGTH-1; ++i) {
-      doubleInputBuffer2[i-RECORDING_LENGTH/2] = inputBuffer[i] / 32767.0f;
+    for (int i = 0; i < RECORDING_LENGTH; ++i) {
+      doubleInputBuffer[i] = inputBuffer[i] / 32767.0f;
     }
-
-//    for (int i = 0; i < RECORDING_LENGTH; ++i) {
-//      doubleInputBuffer[i] = inputBuffer[i] / 32767.0f;
-//    }
+    // normalize
+    normalization(doubleInputBuffer);
     //MFCC java library.
     // MFCC 로바꾸기
     MFCC mfccConvert = new MFCC();
-    float[] mfccInput = mfccConvert.process(doubleInputBuffer2);
+    float[] mfccInput = mfccConvert.process(doubleInputBuffer);
 
     // 5초따리
     // 16000으로 하면 3140 이 원래 input 근데 22050으로 바꾸면 4320 둘다 0.19
@@ -885,33 +871,14 @@ public class SpeechActivity extends Activity
       e.printStackTrace();
     }
 
-    float sum = 0;
-    for (int i=0; i<mfccInput.length; i++) {
-      sum += mfccInput[i];
-    }
-
-    float avg = (float)sum / (float)mfccInput.length;
-
-    float total =0;
-    for (int i=0; i<mfccInput.length; i++)
-      total += (mfccInput[i]-avg)*(mfccInput[i]-avg);
-
-    float dev = total / mfccInput.length; // 분산
-    float std = (float)Math.sqrt(dev);
-
-    float eps = (float)1e-6;
-    for (int i=0; i<mfccInput.length; i++) {
-      //(spec - mean) / (std + eps)
-      mfccInput[i] = (mfccInput[i] - avg)/ (std+eps);
-    }
     Log.v(LOG_TAG, "MFCC Reged Input======> " + mfccInput[0]);
 
-    // 일단 431,50 shape로 만들기
+    // 일단 862,50 shape로 만들기
     // 만들고 나서 reshape?
     int SECOND_DIM = 50;
-    int THIRD_DIM = 431;
+    int THIRD_DIM = 862;
     int FOURTH_DIM = 3; // 그안에서 세번 반
-    float[][] temp_reshaped_mfccInput = new float[431][50];
+    float[][] temp_reshaped_mfccInput = new float[862][50];
     for(int third_d =0;third_d<THIRD_DIM;third_d++){
       for(int second_d =0;second_d<SECOND_DIM;second_d++){
         float current_input = mfccInput[SECOND_DIM*third_d+second_d];
@@ -920,7 +887,7 @@ public class SpeechActivity extends Activity
     }
 
     // Transpose
-    float[][][][] reshaped_mfccInput = new float[1][50][431][3];
+    float[][][][] reshaped_mfccInput = new float[1][50][862][3];
     for(int second_d =0;second_d<SECOND_DIM;second_d++){
       for(int third_d =0;third_d<THIRD_DIM;third_d++){
         // 세번 반복할 애 차원
@@ -930,8 +897,7 @@ public class SpeechActivity extends Activity
         }
       }
     }
-//    Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0].lenth);
-//      Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0].lenth);
+
     Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][0]);
     Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][1]);
     Log.v(LOG_TAG, "reshaped MFCC Input======> " + reshaped_mfccInput[0][0][0][2]);
